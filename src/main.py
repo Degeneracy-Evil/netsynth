@@ -1,14 +1,11 @@
-"""Minimal runnable example for projects created from this template."""
+"""Run the NetSynth phase-1 routing experiment suite."""
 
-
-def greeting() -> str:
-    """Return the example greeting."""
-    return "Hello, World!"
+from netsynth.cli import run
 
 
 def main() -> None:
-    """Run the example application."""
-    print(greeting())
+    """Run the CLI."""
+    run()
 
 
 if __name__ == "__main__":
