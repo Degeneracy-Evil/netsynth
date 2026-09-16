@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Show tool versions
+        run: |
+          uv --version
+          uv run --locked python --version
+          uv run --locked ruff --version
+          uv run --locked mypy --version
+          uv run --locked pytest --version
+
+      - name: Run quality checks
+        run: uv run --locked python scripts/check.py
+
+      - name: Verify quality checks did not modify the repository
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+
+      - name: Run smoke test
+        run: uv run --locked python src/main.py

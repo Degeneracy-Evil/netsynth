@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -o pipefail
+
+if ! git diff --cached --check; then
+    echo "pre-commit: staged whitespace validation failed." >&2
+    exit 1
+fi
+
+staged_paths=$(mktemp)
+trap 'rm -f "$staged_paths"' EXIT
+
+if ! git diff --cached --name-only --diff-filter=ACMR -z -- '*.py' '*.pyi' >"$staged_paths"; then
+    echo "pre-commit: could not read staged Python paths." >&2
+    exit 1
+fi
+
+if [[ ! -s "$staged_paths" ]]; then
+    exit 0
+fi
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "pre-commit: uv is required to validate staged Python files." >&2
+    exit 1
+fi
+
+while IFS= read -r -d '' path; do
+    if ! git cat-file blob ":$path" | uv run --locked ruff format --check --stdin-filename "$path" -; then
+        echo "pre-commit: Ruff formatting validation failed for staged file: $path" >&2
+        exit 1
+    fi
+done <"$staged_paths"

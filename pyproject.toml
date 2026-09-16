@@ -1,0 +1,73 @@
+[project]
+name = "base-py"
+version = "0.1.0"
+description = "Personal Python project template"
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "pytest>=8.4.2",
+    "ruff>=0.12.7",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "A",
+    "ANN",
+    "ARG",
+    "ASYNC",
+    "B",
+    "C4",
+    "DTZ",
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "N",
+    "PERF",
+    "PIE",
+    "RUF",
+    "S102",
+    "S307",
+    "S506",
+    "S602",
+    "S604",
+    "S608",
+    "SIM",
+    "T10",
+    "UP",
+    "W",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN201"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+pretty = true
+files = ["src", "tests", "scripts"]
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "--import-mode=importlib",
+]
+pythonpath = ["src"]
+testpaths = ["tests"]
