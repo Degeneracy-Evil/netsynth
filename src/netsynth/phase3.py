@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from netsynth.decomposition import BalancedConnectedDecomposition, ScopeTree
+from netsynth.decomposition import BalancedConnectedDecomposition, Scope, ScopeTree
 from netsynth.failures import random_link_set_event, sample_events, single_link_events, single_node_events
 from netsynth.forwarding import ForwardingNetwork, Locator, LocatorCatalog, compile_forwarding, execute_forwarding
 from netsynth.graph import Edge, Graph, Node
@@ -17,7 +17,7 @@ from netsynth.routing import CompressedRouting, FlatRouting
 from netsynth.summaries import SummaryBuilder, SummaryConfig
 from netsynth.topology import generate
 
-SCHEMA_VERSION = "3.0"
+SCHEMA_VERSION = "3.1"
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,7 @@ class Phase3Config:
     s2_landmark_counts: tuple[int, ...] = (1, 2, 4)
     cost_profile: str = "unit"
     label_permutation_seed: int | None = None
+    fixed_structure_label_seed: int | None = None
     hop_budget: int | None = None
 
 
@@ -42,6 +43,8 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
     """Compare flat, recursive oracle, and distributed routes on the same instance."""
     graph = _transform(generate(config.topology_family, config.topology_parameters, config.seed), config)
     tree = BalancedConnectedDecomposition(config.leaf_size).decompose(graph)
+    if config.fixed_structure_label_seed is not None:
+        graph, tree = _relabel_structure(graph, tree, config.fixed_structure_label_seed)
     catalog = LocatorCatalog.from_tree(tree)
     flat = FlatRouting(graph)
     pairs, sampled = _pairs(graph, config.pair_sample_count, config.seed + 1)
@@ -49,6 +52,7 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
     if budget < 0:
         raise ValueError("hop_budget cannot be negative")
     configs = [
+        SummaryConfig("r0"),
         SummaryConfig("s0"),
         SummaryConfig("s1", bundle_representatives=config.s1_bundle_representatives),
         *(SummaryConfig("s2", landmark_count=k) for k in dict.fromkeys(config.s2_landmark_counts)),
@@ -84,14 +88,56 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
     failures = []
     for event in selected:
         failed = event.apply(graph)
-        row: dict[str, Any] = {"event": event.to_dict(), "strategies": {}}
+        prefix_admissible = all(failed.induced(scope.members).is_connected() for scope in tree.scopes())
+        row: dict[str, Any] = {
+            "event": event.to_dict(),
+            "strategies": {},
+            "physical_graph_connected": failed.is_connected(),
+            "prefix_monotone_scope_connectivity": prefix_admissible,
+        }
         for summary_config, builder, build, network in prepared:
             after = builder.build(failed)
             after_network = compile_forwarding(after, catalog)
             row["strategies"][summary_config.name] = {
                 "distributed_churn": churn(network.state, after_network.state, graph.nodes),
                 "failure_locality": failure_locality(build, after),
+                "reachability_classification": (
+                    "physical_partition"
+                    if not failed.is_connected()
+                    else (
+                        "prefix_constraint_violation"
+                        if not prefix_admissible
+                        else (
+                            "boundary_relation_changed"
+                            if any(
+                                view.summary.connectivity_components
+                                != after.views[identifier].summary.connectivity_components
+                                for identifier, view in build.views.items()
+                            )
+                            else "internal_change_no_boundary_relation_change"
+                        )
+                    )
+                ),
             }
+            if summary_config.level == "r0" and len(graph.nodes) <= 32:
+                reachable_pairs = [
+                    (source, target)
+                    for source in sorted(failed.nodes)
+                    for target in sorted(failed.nodes)
+                    if source != target and failed.shortest_path(source, target) is not None
+                ]
+                outcomes = [
+                    execute_forwarding(after_network, failed, source, catalog.by_node[target], budget).status
+                    for source, target in reachable_pairs
+                ]
+                row["strategies"][summary_config.name]["connected_pair_audit"] = {
+                    "exhaustive": True,
+                    "physically_reachable_pairs": len(reachable_pairs),
+                    "delivered": outcomes.count("delivered"),
+                    "false_no_route": outcomes.count("no_route"),
+                    "loops": outcomes.count("loop"),
+                    "hop_budget_exhausted": outcomes.count("hop_budget_exhausted"),
+                }
         failures.append(row)
     return {
         "schema": {"name": "netsynth.phase3", "version": SCHEMA_VERSION},
@@ -280,9 +326,31 @@ def _topology_metadata(config: Phase3Config, graph: Graph) -> dict[str, Any]:
         "link_count": len(graph.edges),
         "cost_profile": config.cost_profile,
         "label_permutation_seed": config.label_permutation_seed,
+        "fixed_structure_label_seed": config.fixed_structure_label_seed,
     }
     if config.topology_family == "json":
         metadata["input_sha256"] = hashlib.sha256(
             Path(str(config.topology_parameters["path"])).read_bytes()
         ).hexdigest()
     return metadata
+
+
+def _relabel_structure(graph: Graph, tree: ScopeTree, seed: int) -> tuple[Graph, ScopeTree]:
+    """Relabel graph and existing hierarchy isomorphically, without repartitioning."""
+    old = sorted(graph.nodes)
+    new = old.copy()
+    random.Random(seed).shuffle(new)
+    mapping = dict(zip(old, new, strict=True))
+    relabeled_graph = Graph(
+        set(new),
+        [Edge(mapping[edge.left], mapping[edge.right], edge.cost, edge.capacity) for edge in graph.edges],
+    )
+
+    def remap(scope: Scope) -> Scope:
+        return Scope(
+            scope.identifier, frozenset(mapping[node] for node in scope.members), tuple(map(remap, scope.children))
+        )
+
+    relabeled_tree = ScopeTree(remap(tree.root))
+    relabeled_tree.validate(relabeled_graph)
+    return relabeled_graph, relabeled_tree

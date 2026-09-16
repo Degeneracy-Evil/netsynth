@@ -274,6 +274,22 @@ def _charge_owner(
                 objects[(owner, record.category, child.identifier, record.identifier)] = PersistentObject(
                     (left, right, record.cost), left.component_count + right.component_count + 1
                 )
+            if build.config.level == "r0":
+                for node in summary.boundary_nodes:
+                    reference = catalog.by_node[node]
+                    objects[(owner, "reachability_boundary", child.identifier, str(reference))] = PersistentObject(
+                        (reference,), reference.component_count
+                    )
+            for index, component in enumerate(summary.connectivity_components):
+                component_id = f"component:{index}"
+                objects[(owner, "reachability_component", child.identifier, component_id)] = PersistentObject(
+                    (component_id,), 1
+                )
+                for node in component:
+                    reference = catalog.by_node[node]
+                    objects[(owner, "reachability_interface", child.identifier, f"{component_id}:{reference}")] = (
+                        PersistentObject((component_id, reference), reference.component_count + 1)
+                    )
 
 
 def execute_forwarding(

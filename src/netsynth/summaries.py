@@ -8,7 +8,7 @@ from typing import Literal
 from netsynth.decomposition import Scope, ScopeTree
 from netsynth.graph import Edge, Graph, Node
 
-SummaryLevel = Literal["s0", "s1", "s2", "s3"]
+SummaryLevel = Literal["r0", "s0", "s1", "s2", "s3"]
 
 
 @dataclass(frozen=True)
@@ -70,19 +70,29 @@ class PublishedSummary:
     boundary_nodes: tuple[Node, ...]
     portals: tuple[Node, ...]
     distances: tuple[SummaryDistance, ...]
+    connectivity_components: tuple[tuple[Node, ...], ...] = ()
 
     @property
     def signature(self) -> tuple[object, ...]:
         """Return all externally visible persistent values."""
-        return (self.boundary_nodes, self.portals, self.distances)
+        return (self.boundary_nodes, self.portals, self.distances, self.connectivity_components)
 
     def usable_edges(self) -> tuple[Edge, ...]:
         """Return the abstract edges a parent may consume."""
-        return tuple(
+        metric_edges = tuple(
             Edge(record.left, record.right, record.cost)
             for record in self.distances
             if record.cost is not None and record.left != record.right
         )
+        # R0 stores a linear-size component/star relation. Pairwise edges are a
+        # transient graph-algorithm view, never persistent summary objects.
+        reachability_edges = tuple(
+            Edge(left, right, 2.0)
+            for component in self.connectivity_components
+            for index, left in enumerate(component)
+            for right in component[index + 1 :]
+        )
+        return (*metric_edges, *reachability_edges)
 
 
 @dataclass(frozen=True)
@@ -125,7 +135,7 @@ class SummaryBuilder:
                 visit(child)
             crossings = self._crossings(scope, graph)
             available = self._available_graph(scope, graph, views, crossings)
-            summary = self._publish(scope, available, graph)
+            summary = self._publish(scope, available)
             if scope.is_leaf:
                 input_signature: tuple[object, ...] = (
                     tuple(sorted(graph.nodes.intersection(scope.members))),
@@ -158,11 +168,31 @@ class SummaryBuilder:
             return graph.induced(scope.members)
         edges = [edge for child in scope.children for edge in views[child.identifier].summary.usable_edges()]
         edges.extend(edge for crossing in crossings for edge in crossing.usable_edges)
+        if self._config.level == "r0":
+            visible_nodes = {
+                node
+                for child in scope.children
+                for component in views[child.identifier].summary.connectivity_components
+                for node in component
+            }
+            visible_nodes.update(node for edge in edges for node in (edge.left, edge.right))
+            return Graph(visible_nodes, edges)
         return Graph(set(graph.nodes.intersection(scope.members)), edges)
 
-    def _publish(self, scope: Scope, available: Graph, graph: Graph) -> PublishedSummary:
+    def _publish(self, scope: Scope, available: Graph) -> PublishedSummary:
         boundary = self._boundary_nodes(scope)
-        present_boundary = tuple(node for node in boundary if node in graph.nodes)
+        present_boundary = tuple(node for node in boundary if node in available.nodes)
+        if self._config.level == "r0":
+            remaining = set(present_boundary)
+            components: list[tuple[Node, ...]] = []
+            while remaining:
+                representative = min(remaining)
+                connected = tuple(
+                    sorted(node for node in remaining if available.shortest_path(representative, node) is not None)
+                )
+                components.append(connected)
+                remaining.difference_update(connected)
+            return PublishedSummary(scope.identifier, boundary, (), (), tuple(components))
         if self._config.level == "s0" or not boundary:
             return PublishedSummary(scope.identifier, boundary, (), ())
         if self._config.level == "s1":

@@ -25,11 +25,11 @@ Compatibility with existing network protocols, security, wireless/weak-network b
 
 The codebase uses Python 3.14, uv, Ruff, mypy, and pytest.
 
-## Running Phase-3 experiments
+## Running Phase-3.1 experiments
 
 Run the built-in exhaustive small-graph suite. It compares Flat shortest paths, the Phase-2 recursive oracle,
-and compiled hop-by-hop distributed forwarding for S0/S1/S2/S3. It includes two seeds per family, a label-only
-permutation, and a skewed-link-cost variant. Every strategy on one graph shares the same fixed decomposition,
+and compiled hop-by-hop distributed forwarding for R0/S0/S1/S2/S3. It includes two seeds per family, a label-only
+permutation, a fixed-structure relabeling control, and a skewed-link-cost variant. Every strategy on one graph shares the same fixed decomposition,
 ordered source/destination pairs, and failure events:
 
 ```bash
@@ -50,6 +50,7 @@ Or pass `--config experiment.json`. The file may contain one object or a list of
   "s2_landmark_counts": [1, 2, 4],
   "cost_profile": "skewed",
   "label_permutation_seed": 17,
+  "fixed_structure_label_seed": 19,
   "hop_budget": 100
 }
 ```
@@ -62,6 +63,7 @@ needed to reproduce a run.
 
 The summary budgets are:
 
+- `R0`: exact boundary-interface connectivity components with deliberately uniform abstract cost (the reachability floor);
 - `S0`: sibling adjacency and crossing-link metadata only;
 - `S1`: boundary bundles with a bounded number of representative crossings;
 - `S2(k)`: `k` stable boundary landmarks, landmark distances, and boundary attachments;
@@ -69,13 +71,28 @@ The summary budgets are:
 
 Summaries are constructed bottom-up. A non-leaf scope sees only immediate-child summaries and physical crossings
 between those children. Results report forwarding, local/global detailed topology, quotient, crossing/bundle,
-portal, attachment, and distance state separately, both as object counts and normalized scalar sizes.
+portal, attachment, distance, and reachability-component/interface state separately, both as object counts and normalized scalar sizes.
+R0's persistent component representation is linear in boundary interfaces; pairwise abstract edges are transient
+compiler input, not stored or legal next hops. S0/S1 remain negative controls, not candidate reachability floors.
 
 Phase-3 data-plane forwarding receives only the destination's Structured Locator, a Hop Budget, and its own
 immutable prefix-indexed FIB. The per-node control plane compiles this FIB from local-leaf detail and charged
 ancestor crossings/remote sibling summaries. The physical graph is used by the separate executor only to validate
 and price selected hops. Outputs distinguish delivered, no-route, invalid-next-hop, loop, and Hop-Budget-exhausted
 routes, and report locator/reference component counts without claiming a wire encoding.
+Failure output separately classifies physical partitions, changed boundary reachability, unchanged boundary relation,
+and cases where a fixed scope loses internal connectivity while the physical graph stays connected. Such cases can
+remain unreachable under the existing prefix-monotone forwarding rule. Deterministic FIB choices can also loop on
+some larger graphs; R0 guarantees summary reachability, not universal delivery under the current forwarding rule.
+
+Run the modest R0 scaling study (16, 32, 64, and 128 nodes by default) with:
+
+```bash
+uv run --locked python src/scaling_main.py --output scaling.json
+```
+
+It samples ordered pairs and reports state, stretch, reachability outcomes, and one failure's churn/locality per
+topology. These empirical sizes are not an asymptotic complexity claim.
 
 To import a physical graph, use `"topology_family": "json"` and `"topology_parameters": {"path": "graph.json"}`.
 The graph file has `nodes` and `links` lists; each link has `left`, `right`, and optional positive `cost` and

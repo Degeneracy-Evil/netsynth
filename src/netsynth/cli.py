@@ -41,6 +41,17 @@ def default_suite(seed: int) -> list[Phase3Config]:
             seed=seed,
             leaf_size=4,
             failure_sample_count=2,
+            fixed_structure_label_seed=seed + 199,
+        )
+        for family, parameters in families
+    )
+    suite.extend(
+        Phase3Config(
+            family,
+            parameters,
+            seed=seed,
+            leaf_size=4,
+            failure_sample_count=2,
             cost_profile="skewed",
         )
         for family, parameters in families

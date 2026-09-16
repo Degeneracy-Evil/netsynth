@@ -310,6 +310,22 @@ class CompressedRouting:
                 (record.left, record.right, record.cost),
                 3,
             )
+        if self._build.config.level == "r0":
+            for node in summary.boundary_nodes:
+                _add(objects, owner, "reachability_boundary", summary.scope_id, str(node), (node,), 1)
+        for index, component in enumerate(summary.connectivity_components):
+            identifier = f"component:{index}"
+            _add(objects, owner, "reachability_component", summary.scope_id, identifier, (identifier,), 1)
+            for node in component:
+                _add(
+                    objects,
+                    owner,
+                    "reachability_interface",
+                    summary.scope_id,
+                    f"{identifier}:{node}",
+                    (identifier, node),
+                    2,
+                )
 
 
 def validate_path(graph: Graph, path: Path, source: Node, target: Node) -> bool:
