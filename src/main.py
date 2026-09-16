@@ -1,4 +1,4 @@
-"""Run the NetSynth Phase-2 routing-summary experiment suite."""
+"""Run the NetSynth Phase-3 distributed-forwarding experiment suite."""
 
 from netsynth.cli import run
 

@@ -25,10 +25,12 @@ Compatibility with existing network protocols, security, wireless/weak-network b
 
 The codebase uses Python 3.14, uv, Ruff, mypy, and pytest.
 
-## Running Phase-2 experiments
+## Running Phase-3 experiments
 
-Run the built-in small suite (tree, mesh, irregular random, and expander-like hostile topology). Every graph uses
-one fixed decomposition and compares Flat, S0, S1, S2(k=1,2,4), and S3 on identical samples and failures:
+Run the built-in exhaustive small-graph suite. It compares Flat shortest paths, the Phase-2 recursive oracle,
+and compiled hop-by-hop distributed forwarding for S0/S1/S2/S3. It includes two seeds per family, a label-only
+permutation, and a skewed-link-cost variant. Every strategy on one graph shares the same fixed decomposition,
+ordered source/destination pairs, and failure events:
 
 ```bash
 uv run --locked python src/main.py --output results.json
@@ -45,7 +47,10 @@ Or pass `--config experiment.json`. The file may contain one object or a list of
   "pair_sample_count": null,
   "failure_sample_count": 20,
   "s1_bundle_representatives": 2,
-  "s2_landmark_counts": [1, 2, 4]
+  "s2_landmark_counts": [1, 2, 4],
+  "cost_profile": "skewed",
+  "label_permutation_seed": 17,
+  "hop_budget": 100
 }
 ```
 
@@ -65,6 +70,12 @@ The summary budgets are:
 Summaries are constructed bottom-up. A non-leaf scope sees only immediate-child summaries and physical crossings
 between those children. Results report forwarding, local/global detailed topology, quotient, crossing/bundle,
 portal, attachment, and distance state separately, both as object counts and normalized scalar sizes.
+
+Phase-3 data-plane forwarding receives only the destination's Structured Locator, a Hop Budget, and its own
+immutable prefix-indexed FIB. The per-node control plane compiles this FIB from local-leaf detail and charged
+ancestor crossings/remote sibling summaries. The physical graph is used by the separate executor only to validate
+and price selected hops. Outputs distinguish delivered, no-route, invalid-next-hop, loop, and Hop-Budget-exhausted
+routes, and report locator/reference component counts without claiming a wire encoding.
 
 To import a physical graph, use `"topology_family": "json"` and `"topology_parameters": {"path": "graph.json"}`.
 The graph file has `nodes` and `links` lists; each link has `left`, `right`, and optional positive `cost` and

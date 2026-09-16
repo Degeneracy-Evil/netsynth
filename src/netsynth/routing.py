@@ -94,7 +94,7 @@ class FlatRouting:
 
 
 class CompressedRouting:
-    """Recursive routing that consumes exactly one composable summary build."""
+    """Phase-2 recursive path oracle; not a deployable Phase-3 forwarder."""
 
     def __init__(self, build: SummaryBuild) -> None:
         self._build = build
