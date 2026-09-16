@@ -25,9 +25,10 @@ Compatibility with existing network protocols, security, wireless/weak-network b
 
 The codebase uses Python 3.14, uv, Ruff, mypy, and pytest.
 
-## Running phase-1 experiments
+## Running Phase-2 experiments
 
-Run the built-in small suite (tree, mesh, irregular random, and expander-like hostile topology):
+Run the built-in small suite (tree, mesh, irregular random, and expander-like hostile topology). Every graph uses
+one fixed decomposition and compares Flat, S0, S1, S2(k=1,2,4), and S3 on identical samples and failures:
 
 ```bash
 uv run --locked python src/main.py --output results.json
@@ -42,14 +43,28 @@ Or pass `--config experiment.json`. The file may contain one object or a list of
   "seed": 42,
   "leaf_size": 8,
   "pair_sample_count": null,
-  "failure_sample_count": 20
+  "failure_sample_count": 20,
+  "s1_bundle_representatives": 2,
+  "s2_landmark_counts": [1, 2, 4]
 }
 ```
 
 Supported generated families are `tree`, `mesh2d`, `torus2d`, `random_geometric`, `small_world`,
 `erdos_renyi`, `clos`, and `expander_like`. A `null` pair sample means exhaustive ordered pairs; a `null`
 failure sample means all generated single-link, single-node, and random-link-set events. JSON output records all
-generation, decomposition, routing, sampling, failure, and metric-schema inputs needed to reproduce a run.
+generation, decomposition, summary-budget, routing, sampling, failure, state-accounting, and metric-schema inputs
+needed to reproduce a run.
+
+The summary budgets are:
+
+- `S0`: sibling adjacency and crossing-link metadata only;
+- `S1`: boundary bundles with a bounded number of representative crossings;
+- `S2(k)`: `k` stable boundary landmarks, landmark distances, and boundary attachments;
+- `S3`: every stable boundary node and the complete boundary-distance matrix.
+
+Summaries are constructed bottom-up. A non-leaf scope sees only immediate-child summaries and physical crossings
+between those children. Results report forwarding, local/global detailed topology, quotient, crossing/bundle,
+portal, attachment, and distance state separately, both as object counts and normalized scalar sizes.
 
 To import a physical graph, use `"topology_family": "json"` and `"topology_parameters": {"path": "graph.json"}`.
 The graph file has `nodes` and `links` lists; each link has `left`, `right`, and optional positive `cost` and

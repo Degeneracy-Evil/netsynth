@@ -1,4 +1,4 @@
-"""NetSynth phase-1 routing architecture simulator."""
+"""NetSynth routing architecture simulator."""
 
 from netsynth.experiment import ExperimentConfig, run_experiment
 
