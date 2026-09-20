@@ -10,14 +10,21 @@ from typing import Any
 
 from netsynth.decomposition import BalancedConnectedDecomposition, Scope, ScopeTree
 from netsynth.failures import random_link_set_event, sample_events, single_link_events, single_node_events
-from netsynth.forwarding import ForwardingNetwork, Locator, LocatorCatalog, compile_forwarding, execute_forwarding
+from netsynth.forwarding import (
+    ForwardingNetwork,
+    Locator,
+    LocatorCatalog,
+    compile_forwarding,
+    compile_scoped_potentials,
+    execute_forwarding,
+)
 from netsynth.graph import Edge, Graph, Node
 from netsynth.metrics import churn, distribution, failure_locality, path_quality, routing_state
 from netsynth.routing import CompressedRouting, FlatRouting
 from netsynth.summaries import SummaryBuilder, SummaryConfig
 from netsynth.topology import generate
 
-SCHEMA_VERSION = "3.1"
+SCHEMA_VERSION = "3.2"
 
 
 @dataclass(frozen=True)
@@ -61,6 +68,7 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
     if not config.s2_landmark_counts or any(k < 1 for k in config.s2_landmark_counts):
         raise ValueError("S2 landmark counts must be positive")
     prepared = []
+    r0_oracle: CompressedRouting | None = None
     strategies: dict[str, Any] = {
         "flat": {
             "state": routing_state(flat.snapshot(), graph.nodes),
@@ -73,6 +81,8 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
         oracle = CompressedRouting(build)
         network = compile_forwarding(build, catalog)
         prepared.append((summary_config, builder, build, network))
+        if summary_config.level == "r0":
+            r0_oracle = oracle
         strategies[summary_config.name] = {
             "parameters": summary_config.to_dict(),
             "distributed_state": routing_state(network.state, graph.nodes),
@@ -81,6 +91,20 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
             "recursive_oracle": path_quality(graph, flat, oracle, pairs, tree, sampled=sampled),
             "distributed": _distributed_quality(graph, flat, oracle, network, pairs, tree, budget, sampled),
         }
+    if r0_oracle is None:
+        raise AssertionError("R0 control must be present")
+    potential = compile_scoped_potentials(graph, tree, catalog)
+    strategies["scoped_potential"] = {
+        "parameters": {
+            "update": "scoped_neighbor_bellman_fixed_point",
+            "successor_rule": "strict_potential_descent",
+            "r0_consumed": False,
+        },
+        "distributed_state": routing_state(potential.network.state, graph.nodes),
+        "eligible_next_hops": _eligible_distribution(potential.network),
+        "fixed_point_rounds": distribution((float(value) for value in potential.rounds.values()), (50, 95, 99)),
+        "distributed": _distributed_quality(graph, flat, r0_oracle, potential.network, pairs, tree, budget, sampled),
+    }
     events = [*single_link_events(graph, tree), *single_node_events(graph)]
     if 0 < config.random_failure_link_count <= len(graph.edges):
         events.append(random_link_set_event(graph, config.random_failure_link_count, config.seed + 2))
@@ -138,6 +162,20 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
                     "loops": outcomes.count("loop"),
                     "hop_budget_exhausted": outcomes.count("hop_budget_exhausted"),
                 }
+        after_potential = compile_scoped_potentials(failed, tree, catalog)
+        potential_outcomes = [
+            execute_forwarding(after_potential.network, failed, source, catalog.by_node[target], budget).status
+            for source in sorted(failed.nodes)
+            for target in sorted(failed.nodes)
+            if source != target and (len(graph.nodes) <= 32 or (source, target) in pairs)
+        ]
+        row["strategies"]["scoped_potential"] = {
+            "distributed_churn": churn(potential.network.state, after_potential.network.state, graph.nodes),
+            "potential_churn": _potential_churn(potential.network, after_potential.network, graph.nodes),
+            "eligible_next_hops": _eligible_distribution(after_potential.network),
+            "scope_connected_correctness_required": prefix_admissible,
+            "audited_statuses": {status: potential_outcomes.count(status) for status in _STATUSES},
+        }
         failures.append(row)
     return {
         "schema": {"name": "netsynth.phase3", "version": SCHEMA_VERSION},
@@ -160,6 +198,7 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
             "hop_budget": budget,
             "rule": "progressive_locator_prefix",
             "fib": "deterministic_single_next_hop",
+            "candidate_object": "eligible physical next-hop set; deterministic member selected for experiments",
         },
         "locator": {
             "per_node_components": distribution(
@@ -196,12 +235,71 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
             }
             for summary_config in configs
         },
+        "scoped_potential_failure_distribution": {
+            "changed_objects": distribution(
+                (
+                    float(row["strategies"]["scoped_potential"]["potential_churn"]["changed_objects"])
+                    for row in failures
+                ),
+                (50, 95, 99),
+            ),
+            "changed_node_fraction": distribution(
+                (
+                    float(row["strategies"]["scoped_potential"]["potential_churn"]["changed_node_fraction"])
+                    for row in failures
+                ),
+                (50, 95, 99),
+            ),
+            "reached_root_fraction": (
+                sum(row["strategies"]["scoped_potential"]["potential_churn"]["reached_root"] for row in failures)
+                / len(failures)
+                if failures
+                else None
+            ),
+        },
         "definitions": {
             "oracle": "Phase-2 recursive path oracle; may query hidden remote target interior",
             "distributed": "compiled per-node FIB lookup; physical graph used only by executor",
+            "scoped_potential": "R0-independent neighbor-exchange fixed point with strict descent",
             "state": "persistent owner-local and remote summary/FIB objects; locator reference components charged",
             "excluded": "simulator route cache, transient Dijkstra work, availability replication",
         },
+    }
+
+
+_STATUSES = ("delivered", "no_route", "invalid_next_hop", "loop", "hop_budget_exhausted")
+
+
+def _eligible_distribution(network: ForwardingNetwork) -> dict[str, Any]:
+    sizes = [
+        float(len(hops))
+        for knowledge in network.knowledge.values()
+        for hops in (() if knowledge.eligible is None else knowledge.eligible.values())
+    ]
+    return {
+        "set_size": distribution(sizes, (50, 95, 99)),
+        "nonempty_set_size": distribution((size for size in sizes if size > 0), (50, 95, 99)),
+        "sets": len(sizes),
+        "sets_with_multiple_choices": sum(size > 1 for size in sizes),
+        "sets_without_successor": sum(size == 0 for size in sizes),
+    }
+
+
+def _potential_churn(before: ForwardingNetwork, after: ForwardingNetwork, nodes: frozenset[Node]) -> dict[str, Any]:
+    categories = {"potential_record", "eligible_next_hop"}
+    keys = {
+        key
+        for key in before.state.objects.keys() | after.state.objects.keys()
+        if key[1] in categories and before.state.objects.get(key) != after.state.objects.get(key)
+    }
+    changed_nodes = {key[0] for key in keys}
+    levels = sorted({key[2].count(".") for key in keys if key[2] != "local"})
+    return {
+        "changed_objects": len(keys),
+        "changed_nodes": len(changed_nodes),
+        "changed_node_fraction": len(changed_nodes) / len(nodes) if nodes else 0.0,
+        "scope_depths_reached": levels,
+        "reached_root": 0 in levels,
     }
 
 
@@ -215,7 +313,7 @@ def _distributed_quality(
     budget: int,
     sampled: bool,
 ) -> dict[str, Any]:
-    statuses = dict.fromkeys(("delivered", "no_route", "invalid_next_hop", "loop", "hop_budget_exhausted"), 0)
+    statuses = dict.fromkeys(_STATUSES, 0)
     stretches: list[float] = []
     hop_stretches: list[float] = []
     overhead: list[float] = []

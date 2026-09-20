@@ -25,10 +25,10 @@ Compatibility with existing network protocols, security, wireless/weak-network b
 
 The codebase uses Python 3.14, uv, Ruff, mypy, and pytest.
 
-## Running Phase-3.1 experiments
+## Running Phase-3.2 experiments
 
 Run the built-in exhaustive small-graph suite. It compares Flat shortest paths, the Phase-2 recursive oracle,
-and compiled hop-by-hop distributed forwarding for R0/S0/S1/S2/S3. It includes two seeds per family, a label-only
+R0/S0/S1/S2/S3 forwarding controls, and scoped-potential forwarding. It includes two seeds per family, a label-only
 permutation, a fixed-structure relabeling control, and a skewed-link-cost variant. Every strategy on one graph shares the same fixed decomposition,
 ordered source/destination pairs, and failure events:
 
@@ -80,12 +80,16 @@ immutable prefix-indexed FIB. The per-node control plane compiles this FIB from 
 ancestor crossings/remote sibling summaries. The physical graph is used by the separate executor only to validate
 and price selected hops. Outputs distinguish delivered, no-route, invalid-next-hop, loop, and Hop-Budget-exhausted
 routes, and report locator/reference component counts without claiming a wire encoding.
+The Phase-3.2 candidate obtains one scalar potential per relevant Scope child prefix (and leaf-local destination)
+through scoped neighbor-to-neighbor fixed-point updates. Its architectural forwarding object is the set of adjacent
+physical neighbors with strictly lower potential. The experiment deterministically selects one member, while
+reporting the complete eligible-set distribution. It consumes neither R0 summaries nor remote topology.
 Failure output separately classifies physical partitions, changed boundary reachability, unchanged boundary relation,
 and cases where a fixed scope loses internal connectivity while the physical graph stays connected. Such cases can
-remain unreachable under the existing prefix-monotone forwarding rule. Deterministic FIB choices can also loop on
-some larger graphs; R0 guarantees summary reachability, not universal delivery under the current forwarding rule.
+remain unreachable under the prefix-monotone forwarding domain. Scoped potentials eliminate stable loops when
+every fixed Scope remains connected; scope-breaking repair and destination/component attachment remain out of scope.
 
-Run the modest R0 scaling study (16, 32, 64, and 128 nodes by default) with:
+Run the modest R0-versus-scoped-potential scaling study (16, 32, 64, and 128 nodes by default) with:
 
 ```bash
 uv run --locked python src/scaling_main.py --output scaling.json

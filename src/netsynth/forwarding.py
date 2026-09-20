@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from heapq import heappop, heappush
+from math import inf
 from types import MappingProxyType
 
 from netsynth.decomposition import Scope, ScopeTree
@@ -67,6 +68,18 @@ class ForwardingKnowledge:
     neighbors: Mapping[Locator, float]
     fib: Mapping[tuple[int, ...] | Locator, Locator]
     local_members: frozenset[Locator]
+    eligible: Mapping[tuple[int, ...] | Locator, tuple[Locator, ...]] | None = None
+
+    def eligible_next_hops(self, destination: Locator) -> tuple[Locator, ...]:
+        """Return progress-safe physical neighbors at the active resolution."""
+        if self.eligible is None:
+            return ()
+        if destination.components == self.owner.components:
+            return self.eligible.get(destination, ())
+        common = _common_prefix(self.owner.components, destination.components)
+        if common >= len(destination.components):
+            return ()
+        return self.eligible.get(destination.components[: common + 1], ())
 
     def next_hop(self, destination: Locator, hop_budget: int) -> Locator | None:
         """Look up one compiled physical neighbor; no route computation occurs here."""
@@ -98,6 +111,14 @@ class ForwardingNetwork:
     knowledge: Mapping[Locator, ForwardingKnowledge]
     state: RoutingSnapshot
     catalog: LocatorCatalog
+
+
+@dataclass(frozen=True)
+class PotentialCompilation:
+    """Converged result plus auditable local fixed-point work."""
+
+    network: ForwardingNetwork
+    rounds: Mapping[str, int]
 
 
 def compile_forwarding(build: SummaryBuild, catalog: LocatorCatalog) -> ForwardingNetwork:
@@ -140,6 +161,112 @@ def compile_forwarding(build: SummaryBuild, catalog: LocatorCatalog) -> Forwardi
         )
         _charge_owner(objects, build, catalog, owner, view, fib, local)
     return ForwardingNetwork(MappingProxyType(knowledge), RoutingSnapshot(objects), catalog)
+
+
+def compile_scoped_potentials(graph: Graph, tree: ScopeTree, catalog: LocatorCatalog) -> PotentialCompilation:
+    """Converge scoped potentials using only neighbor advertisements per update."""
+    tables: dict[tuple[str, tuple[int, ...] | Locator], dict[Node, float]] = {}
+    rounds: dict[str, int] = {}
+    for scope in tree.scopes():
+        if scope.is_leaf:
+            for target in sorted(scope.members.intersection(graph.nodes)):
+                key: tuple[int, ...] | Locator = catalog.by_node[target]
+                values, count = _neighbor_fixed_point(graph, scope, frozenset((target,)))
+                tables[(scope.identifier, key)] = values
+                rounds[f"{scope.identifier}:{key}"] = count
+            continue
+        for child in scope.children:
+            prefix = _scope_prefix(child, catalog)
+            values, count = _neighbor_fixed_point(graph, scope, child.members.intersection(graph.nodes))
+            tables[(scope.identifier, prefix)] = values
+            rounds[f"{scope.identifier}:{prefix}"] = count
+
+    knowledge: dict[Locator, ForwardingKnowledge] = {}
+    objects: dict[tuple[Node, str, str, str], PersistentObject] = {}
+    node_by_locator = {locator: node for node, locator in catalog.by_node.items()}
+    for owner in sorted(graph.nodes):
+        locator = catalog.by_node[owner]
+        neighbors = {catalog.by_node[node]: edge.cost for node, edge in graph.neighbors(owner)}
+        eligible: dict[tuple[int, ...] | Locator, tuple[Locator, ...]] = {}
+        selected: dict[tuple[int, ...] | Locator, Locator] = {}
+        lineage = tree.lineage(owner)
+        for scope in lineage:
+            keys: tuple[tuple[int, ...] | Locator, ...]
+            if scope.is_leaf:
+                keys = tuple(catalog.by_node[node] for node in sorted(scope.members.intersection(graph.nodes)))
+            else:
+                child_prefixes = tuple(_scope_prefix(child, catalog) for child in scope.children)
+                keys = child_prefixes
+            for key in keys:
+                values = tables[(scope.identifier, key)]
+                current = values.get(owner, inf)
+                choices = tuple(
+                    sorted(
+                        catalog.by_node[neighbor]
+                        for neighbor, _edge in graph.neighbors(owner)
+                        if neighbor in scope.members and values.get(neighbor, inf) < current
+                    )
+                )
+                eligible[key] = choices
+                if choices:
+                    selected[key] = min(
+                        choices,
+                        key=lambda hop: (
+                            neighbors[hop] + values[node_by_locator[hop]],
+                            hop,
+                        ),
+                    )
+                key_size = key.component_count if isinstance(key, Locator) else len(key)
+                objects[(owner, "potential_record", scope.identifier, str(key))] = PersistentObject(
+                    (key, None if current == inf else current), key_size + 1
+                )
+                for hop in choices:
+                    objects[(owner, "eligible_next_hop", scope.identifier, f"{key}:{hop}")] = PersistentObject(
+                        (key, hop), key_size + hop.component_count
+                    )
+        fib = selected
+        objects[(owner, "own_locator", "local", "self")] = PersistentObject((locator,), locator.component_count)
+        for neighbor, cost in neighbors.items():
+            objects[(owner, "neighbor_link", "local", str(neighbor))] = PersistentObject(
+                (neighbor, cost), neighbor.component_count + 1
+            )
+        knowledge[locator] = ForwardingKnowledge(
+            locator,
+            MappingProxyType(neighbors),
+            MappingProxyType(fib),
+            frozenset(catalog.by_node[node] for node in tree.leaf_for(owner).members),
+            MappingProxyType(eligible),
+        )
+    network = ForwardingNetwork(MappingProxyType(knowledge), RoutingSnapshot(objects), catalog)
+    return PotentialCompilation(network, MappingProxyType(rounds))
+
+
+def _neighbor_fixed_point(graph: Graph, scope: Scope, sinks: frozenset[Node]) -> tuple[dict[Node, float], int]:
+    """Apply synchronous Bellman updates; each term reads only one neighbor advertisement."""
+    present = graph.nodes.intersection(scope.members)
+    values = {node: (0.0 if node in sinks else inf) for node in present}
+    rounds = 0
+    while True:
+        updated = dict(values)
+        for node in sorted(present.difference(sinks)):
+            updated[node] = min(
+                (edge.cost + values[neighbor] for neighbor, edge in graph.neighbors(node) if neighbor in present),
+                default=inf,
+            )
+        if updated == values:
+            return values, rounds
+        values = updated
+        rounds += 1
+
+
+def _scope_prefix(scope: Scope, catalog: LocatorCatalog) -> tuple[int, ...]:
+    """Return the Locator component prefix shared by a Scope's members."""
+    components = [catalog.by_node[node].components for node in scope.members]
+    length = min(len(value) for value in components)
+    index = 0
+    while index < length and len({value[index] for value in components}) == 1:
+        index += 1
+    return components[0][:index]
 
 
 def _personalized_edges(

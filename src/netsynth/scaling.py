@@ -1,4 +1,4 @@
-"""Small, reproducible R0-only state/reachability scaling experiments."""
+"""Small, reproducible R0 and scoped-potential scaling experiments."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import random
 from typing import Any
 
 from netsynth.decomposition import BalancedConnectedDecomposition
-from netsynth.forwarding import LocatorCatalog, compile_forwarding, execute_forwarding
+from netsynth.forwarding import LocatorCatalog, compile_forwarding, compile_scoped_potentials, execute_forwarding
 from netsynth.metrics import churn, distribution, failure_locality, routing_state
 from netsynth.routing import FlatRouting
 from netsynth.summaries import SummaryBuilder, SummaryConfig
@@ -30,6 +30,7 @@ def run_scaling(
             builder = SummaryBuilder(tree, graph, SummaryConfig("r0"))
             before = builder.build(graph)
             network = compile_forwarding(before, catalog)
+            potential = compile_scoped_potentials(graph, tree, catalog)
             flat = FlatRouting(graph)
             all_pairs = [
                 (source, target) for source in sorted(graph.nodes) for target in sorted(graph.nodes) if source != target
@@ -38,6 +39,10 @@ def run_scaling(
             pairs = random.Random(seed + size).sample(all_pairs, min(pair_sample_count, len(all_pairs)))
             outcomes = [
                 execute_forwarding(network, graph, source, catalog.by_node[target], 4 * size)
+                for source, target in pairs
+            ]
+            potential_outcomes = [
+                execute_forwarding(potential.network, graph, source, catalog.by_node[target], 4 * size)
                 for source, target in pairs
             ]
             stretches = [
@@ -58,7 +63,14 @@ def run_scaling(
             failed = graph.without(edges=frozenset((candidate.key,)))
             after = builder.build(failed)
             after_network = compile_forwarding(after, catalog)
+            after_potential = compile_scoped_potentials(failed, tree, catalog)
             state = routing_state(network.state, graph.nodes)
+            potential_state = routing_state(potential.network.state, graph.nodes)
+            eligible_sizes = [
+                float(len(hops))
+                for knowledge in potential.network.knowledge.values()
+                for hops in (() if knowledge.eligible is None else knowledge.eligible.values())
+            ]
             rows.append(
                 {
                     "family": family,
@@ -92,12 +104,38 @@ def run_scaling(
                         "churn": churn(network.state, after_network.state, graph.nodes),
                         "locality": failure_locality(before, after),
                     },
+                    "scoped_potential": {
+                        "delivered": sum(result.status == "delivered" for result in potential_outcomes),
+                        "no_route": sum(result.status == "no_route" for result in potential_outcomes),
+                        "loop": sum(result.status == "loop" for result in potential_outcomes),
+                        "hop_budget_exhausted": sum(
+                            result.status == "hop_budget_exhausted" for result in potential_outcomes
+                        ),
+                        "weighted_stretch": distribution(
+                            (
+                                result.cost / shortest.cost
+                                for (source, target), result in zip(pairs, potential_outcomes, strict=True)
+                                if result.status == "delivered" and (shortest := flat.route(source, target)) is not None
+                            ),
+                            (50, 95, 99),
+                        ),
+                        "state": potential_state,
+                        "eligible_next_hop_count": distribution(eligible_sizes, (50, 95, 99)),
+                        "nonempty_eligible_next_hop_count": distribution(
+                            (size for size in eligible_sizes if size > 0), (50, 95, 99)
+                        ),
+                        "fixed_point_rounds": distribution(
+                            (float(value) for value in potential.rounds.values()), (50, 95, 99)
+                        ),
+                        "failure_churn": churn(potential.network.state, after_potential.network.state, graph.nodes),
+                    },
                 }
             )
     return {
-        "schema": {"name": "netsynth.phase3_1.scaling", "version": "3.1"},
+        "schema": {"name": "netsynth.phase3_2.scaling", "version": "3.2"},
         "seed": seed,
-        "summary": {"name": "r0", "abstract_component_edge_cost": 2.0},
+        "controls": ["flat", "r0"],
+        "candidate": {"name": "scoped_potential", "r0_consumed": False},
         "requested_pair_sample_count": pair_sample_count,
         "rows": rows,
         "interpretation": "modest empirical sizes only; no asymptotic claim",

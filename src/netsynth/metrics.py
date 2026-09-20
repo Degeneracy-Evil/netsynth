@@ -44,7 +44,9 @@ def routing_state(snapshot: RoutingSnapshot, all_nodes: frozenset[Node]) -> dict
     per_node_size = distribution((float(value) for value in normalized_sizes), (50, 95, 99))
     per_node_size["median"] = per_node_size["p50"]
     semantic_categories = {
-        "data_plane_forwarding": {"forwarding_entry"},
+        "data_plane_forwarding": {"forwarding_entry", "eligible_next_hop"},
+        "potential_control": {"potential_record"},
+        "direct_neighbor_control": {"neighbor_link"},
         "local_detailed_topology": {"local_topology_node", "local_topology_link"},
         "global_detailed_topology": {"global_topology_node", "global_topology_link"},
         "remote_summary": set(categories).difference(
@@ -55,6 +57,9 @@ def routing_state(snapshot: RoutingSnapshot, all_nodes: frozenset[Node]) -> dict
                 "global_topology_node",
                 "global_topology_link",
                 "auxiliary_control",
+                "eligible_next_hop",
+                "potential_record",
+                "neighbor_link",
             }
         ),
         "auxiliary_control": {"auxiliary_control"},
