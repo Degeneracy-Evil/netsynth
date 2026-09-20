@@ -1,4 +1,4 @@
-"""Command-line interface for reproducible Phase-3.2 forwarding experiments."""
+"""Command-line interface for reproducible Phase-4 forwarding experiments."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def default_suite(seed: int) -> list[Phase3Config]:
 
 def parser() -> argparse.ArgumentParser:
     """Build the CLI parser."""
-    result = argparse.ArgumentParser(description="NetSynth Phase-3.2 distributed-forwarding simulator")
+    result = argparse.ArgumentParser(description="NetSynth Phase-4 attachment-lookahead simulator")
     result.add_argument("--config", type=Path, help="JSON file containing one config object or a list")
     result.add_argument("--output", type=Path, help="write JSON to this file instead of stdout")
     result.add_argument("--seed", type=int, default=20260916, help="seed for the built-in suite")

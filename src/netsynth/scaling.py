@@ -5,8 +5,10 @@ from __future__ import annotations
 import random
 from typing import Any
 
+from netsynth.attachments import AttachmentCompilation, Lookahead, compile_attachment_forwarding
 from netsynth.decomposition import BalancedConnectedDecomposition
 from netsynth.forwarding import LocatorCatalog, compile_forwarding, compile_scoped_potentials, execute_forwarding
+from netsynth.graph import Graph
 from netsynth.metrics import churn, distribution, failure_locality, routing_state
 from netsynth.routing import FlatRouting
 from netsynth.summaries import SummaryBuilder, SummaryConfig
@@ -31,6 +33,10 @@ def run_scaling(
             before = builder.build(graph)
             network = compile_forwarding(before, catalog)
             potential = compile_scoped_potentials(graph, tree, catalog)
+            attachment_compilations: dict[Lookahead, AttachmentCompilation] = {
+                lookahead: compile_attachment_forwarding(graph, graph, tree, catalog, lookahead)
+                for lookahead in (1, 2, 3, "full")
+            }
             flat = FlatRouting(graph)
             all_pairs = [
                 (source, target) for source in sorted(graph.nodes) for target in sorted(graph.nodes) if source != target
@@ -64,6 +70,10 @@ def run_scaling(
             after = builder.build(failed)
             after_network = compile_forwarding(after, catalog)
             after_potential = compile_scoped_potentials(failed, tree, catalog)
+            after_attachments: dict[Lookahead, AttachmentCompilation] = {
+                lookahead: compile_attachment_forwarding(failed, graph, tree, catalog, lookahead)
+                for lookahead in (1, 2, 3, "full")
+            }
             state = routing_state(network.state, graph.nodes)
             potential_state = routing_state(potential.network.state, graph.nodes)
             eligible_sizes = [
@@ -71,6 +81,14 @@ def run_scaling(
                 for knowledge in potential.network.knowledge.values()
                 for hops in (() if knowledge.eligible is None else knowledge.eligible.values())
             ]
+            attachment_results = _attachment_scaling_results(
+                graph,
+                flat,
+                pairs,
+                catalog,
+                attachment_compilations,
+                after_attachments,
+            )
             rows.append(
                 {
                     "family": family,
@@ -129,17 +147,75 @@ def run_scaling(
                         ),
                         "failure_churn": churn(potential.network.state, after_potential.network.state, graph.nodes),
                     },
+                    "attachment_lookahead": attachment_results,
                 }
             )
     return {
-        "schema": {"name": "netsynth.phase3_2.scaling", "version": "3.2"},
+        "schema": {"name": "netsynth.phase4.scaling", "version": "4.0"},
         "seed": seed,
         "controls": ["flat", "r0"],
-        "candidate": {"name": "scoped_potential", "r0_consumed": False},
+        "candidate": {
+            "name": "hierarchical_attachment_lookahead",
+            "levels": [1, 2, 3, "full"],
+            "r0_consumed": False,
+        },
         "requested_pair_sample_count": pair_sample_count,
         "rows": rows,
         "interpretation": "modest empirical sizes only; no asymptotic claim",
     }
+
+
+def _attachment_scaling_results(
+    graph: Graph,
+    flat: FlatRouting,
+    pairs: list[tuple[int, int]],
+    catalog: LocatorCatalog,
+    before: dict[Lookahead, AttachmentCompilation],
+    after: dict[Lookahead, AttachmentCompilation],
+) -> dict[str, Any]:
+    costs: dict[Lookahead, list[float]] = {}
+    result: dict[str, Any] = {}
+    for lookahead, compilation in before.items():
+        outcomes = [
+            execute_forwarding(compilation.network, graph, source, catalog.by_node[target], 4 * len(graph.nodes))
+            for source, target in pairs
+        ]
+        costs[lookahead] = [outcome.cost for outcome in outcomes]
+        state = routing_state(compilation.network.state, graph.nodes)
+        result[f"h{lookahead}"] = {
+            "delivered": sum(outcome.status == "delivered" for outcome in outcomes),
+            "loop": sum(outcome.status == "loop" for outcome in outcomes),
+            "no_route": sum(outcome.status == "no_route" for outcome in outcomes),
+            "state": state,
+            "attachment_state": state["by_category"].get(
+                "attachment_advertisement", {"object_total": 0, "normalized_size_total": 0}
+            ),
+            "total_stretch": distribution(
+                (
+                    outcome.cost / shortest.cost
+                    for (source, target), outcome in zip(pairs, outcomes, strict=True)
+                    if (shortest := flat.route(source, target)) is not None
+                ),
+                (50, 95, 99),
+            ),
+            "failure_churn": churn(compilation.network.state, after[lookahead].network.state, graph.nodes),
+        }
+    full = costs["full"]
+    result["hierarchy_stretch"] = distribution(
+        (
+            cost / shortest.cost
+            for (source, target), cost in zip(pairs, full, strict=True)
+            if (shortest := flat.route(source, target)) is not None
+        ),
+        (50, 95, 99),
+    )
+    result["information_stretch"] = {
+        f"h{lookahead}": distribution(
+            (cost / reference for cost, reference in zip(costs[lookahead], full, strict=True)), (50, 95, 99)
+        )
+        for lookahead in (1, 2, 3)
+    }
+    return result
 
 
 def _parameters(family: str, size: int) -> dict[str, int | float | str]:

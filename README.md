@@ -25,10 +25,10 @@ Compatibility with existing network protocols, security, wireless/weak-network b
 
 The codebase uses Python 3.14, uv, Ruff, mypy, and pytest.
 
-## Running Phase-3.2 experiments
+## Running Phase-4 experiments
 
 Run the built-in exhaustive small-graph suite. It compares Flat shortest paths, the Phase-2 recursive oracle,
-R0/S0/S1/S2/S3 forwarding controls, and scoped-potential forwarding. It includes two seeds per family, a label-only
+R0/S0/S1/S2/S3 controls, scoped-potential forwarding, and attachment lookahead `h=1/2/3/full`. It includes two seeds per family, a label-only
 permutation, a fixed-structure relabeling control, and a skewed-link-cost variant. Every strategy on one graph shares the same fixed decomposition,
 ordered source/destination pairs, and failure events:
 
@@ -84,12 +84,18 @@ The Phase-3.2 candidate obtains one scalar potential per relevant Scope child pr
 through scoped neighbor-to-neighbor fixed-point updates. Its architectural forwarding object is the set of adjacent
 physical neighbors with strictly lower potential. The experiment deterministically selects one member, while
 reporting the complete eligible-set distribution. It consumes neither R0 summaries nor remote topology.
+
+Phase 4 publishes recursively composed boundary attachment costs. A parent sees only its child's boundary values,
+not descendant topology. Finite lookahead uses Locator-depth segment checkpoints so every node can recover the
+active checkpoint from its own Locator and the unchanged destination Locator; full lookahead carries exact
+destination attachment values through the hierarchy. Output separates information stretch (`h/full`) from
+hierarchy stretch (`full/Flat`) and charges attachment, potential, and eligible-next-hop records independently.
 Failure output separately classifies physical partitions, changed boundary reachability, unchanged boundary relation,
 and cases where a fixed scope loses internal connectivity while the physical graph stays connected. Such cases can
 remain unreachable under the prefix-monotone forwarding domain. Scoped potentials eliminate stable loops when
 every fixed Scope remains connected; scope-breaking repair and destination/component attachment remain out of scope.
 
-Run the modest R0-versus-scoped-potential scaling study (16, 32, 64, and 128 nodes by default) with:
+Run the modest lookahead scaling study (16, 32, 64, and 128 nodes by default) with:
 
 ```bash
 uv run --locked python src/scaling_main.py --output scaling.json

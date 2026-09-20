@@ -69,29 +69,34 @@ class ForwardingKnowledge:
     fib: Mapping[tuple[int, ...] | Locator, Locator]
     local_members: frozenset[Locator]
     eligible: Mapping[tuple[int, ...] | Locator, tuple[Locator, ...]] | None = None
+    lookahead: int | str | None = None
 
     def eligible_next_hops(self, destination: Locator) -> tuple[Locator, ...]:
         """Return progress-safe physical neighbors at the active resolution."""
         if self.eligible is None:
             return ()
-        if destination.components == self.owner.components:
-            return self.eligible.get(destination, ())
-        common = _common_prefix(self.owner.components, destination.components)
-        if common >= len(destination.components):
-            return ()
-        return self.eligible.get(destination.components[: common + 1], ())
+        key = self._destination_key(destination)
+        return () if key is None else self.eligible.get(key, ())
 
     def next_hop(self, destination: Locator, hop_budget: int) -> Locator | None:
         """Look up one compiled physical neighbor; no route computation occurs here."""
         if hop_budget <= 0:
             return None
+        key = self._destination_key(destination)
+        return None if key is None else self.fib.get(key)
+
+    def _destination_key(self, destination: Locator) -> tuple[int, ...] | Locator | None:
         if destination.components == self.owner.components:
-            return self.fib.get(destination)
+            return destination
         common = _common_prefix(self.owner.components, destination.components)
         if common >= len(destination.components):
             return None
-        prefix = destination.components[: common + 1]
-        return self.fib.get(prefix)
+        if self.lookahead == "full":
+            return destination
+        if isinstance(self.lookahead, int):
+            checkpoint = min(((common // self.lookahead) + 1) * self.lookahead, len(destination.components))
+            return destination.components[:checkpoint]
+        return destination.components[: common + 1]
 
 
 @dataclass(frozen=True)

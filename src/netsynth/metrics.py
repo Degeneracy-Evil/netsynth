@@ -46,6 +46,7 @@ def routing_state(snapshot: RoutingSnapshot, all_nodes: frozenset[Node]) -> dict
     semantic_categories = {
         "data_plane_forwarding": {"forwarding_entry", "eligible_next_hop"},
         "potential_control": {"potential_record"},
+        "attachment_control": {"attachment_advertisement"},
         "direct_neighbor_control": {"neighbor_link"},
         "local_detailed_topology": {"local_topology_node", "local_topology_link"},
         "global_detailed_topology": {"global_topology_node", "global_topology_link"},
@@ -59,6 +60,7 @@ def routing_state(snapshot: RoutingSnapshot, all_nodes: frozenset[Node]) -> dict
                 "auxiliary_control",
                 "eligible_next_hop",
                 "potential_record",
+                "attachment_advertisement",
                 "neighbor_link",
             }
         ),

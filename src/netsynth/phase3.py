@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from netsynth.attachments import Lookahead, compile_attachment_forwarding
 from netsynth.decomposition import BalancedConnectedDecomposition, Scope, ScopeTree
 from netsynth.failures import random_link_set_event, sample_events, single_link_events, single_node_events
 from netsynth.forwarding import (
@@ -24,7 +25,7 @@ from netsynth.routing import CompressedRouting, FlatRouting
 from netsynth.summaries import SummaryBuilder, SummaryConfig
 from netsynth.topology import generate
 
-SCHEMA_VERSION = "3.2"
+SCHEMA_VERSION = "4.0"
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,26 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
         "fixed_point_rounds": distribution((float(value) for value in potential.rounds.values()), (50, 95, 99)),
         "distributed": _distributed_quality(graph, flat, r0_oracle, potential.network, pairs, tree, budget, sampled),
     }
+    attachment_networks: dict[Lookahead, ForwardingNetwork] = {}
+    for lookahead in (1, 2, 3, "full"):
+        compilation = compile_attachment_forwarding(graph, graph, tree, catalog, lookahead)
+        attachment_networks[lookahead] = compilation.network
+        strategies[f"attachment_h{lookahead}"] = {
+            "parameters": {
+                "lookahead": lookahead,
+                "checkpoint_rule": "absolute_locator_depth_segments",
+                "strict_potential_descent": True,
+            },
+            "distributed_state": routing_state(compilation.network.state, graph.nodes),
+            "eligible_next_hops": _eligible_distribution(compilation.network),
+            "fixed_point_rounds": distribution((float(value) for value in compilation.rounds.values()), (50, 95, 99)),
+            "distributed": _distributed_quality(
+                graph, flat, r0_oracle, compilation.network, pairs, tree, budget, sampled
+            ),
+        }
+    strategies["attachment_comparison"] = _attachment_comparison(
+        graph, flat, attachment_networks, pairs, budget, sampled
+    )
     events = [*single_link_events(graph, tree), *single_node_events(graph)]
     if 0 < config.random_failure_link_count <= len(graph.edges):
         events.append(random_link_set_event(graph, config.random_failure_link_count, config.seed + 2))
@@ -176,6 +197,22 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
             "scope_connected_correctness_required": prefix_admissible,
             "audited_statuses": {status: potential_outcomes.count(status) for status in _STATUSES},
         }
+        for lookahead, before_network in attachment_networks.items():
+            after_compilation = compile_attachment_forwarding(failed, graph, tree, catalog, lookahead)
+            after_network = after_compilation.network
+            outcomes = [
+                execute_forwarding(after_network, failed, source, catalog.by_node[target], budget).status
+                for source in sorted(failed.nodes)
+                for target in sorted(failed.nodes)
+                if source != target and (len(graph.nodes) <= 32 or (source, target) in pairs)
+            ]
+            row["strategies"][f"attachment_h{lookahead}"] = {
+                "distributed_churn": churn(before_network.state, after_network.state, graph.nodes),
+                "control_churn": _potential_churn(before_network, after_network, graph.nodes),
+                "eligible_next_hops": _eligible_distribution(after_network),
+                "scope_connected_correctness_required": prefix_admissible,
+                "audited_statuses": {status: outcomes.count(status) for status in _STATUSES},
+            }
         failures.append(row)
     return {
         "schema": {"name": "netsynth.phase3", "version": SCHEMA_VERSION},
@@ -199,6 +236,7 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
             "rule": "progressive_locator_prefix",
             "fib": "deterministic_single_next_hop",
             "candidate_object": "eligible physical next-hop set; deterministic member selected for experiments",
+            "attachment_checkpoint_rule": "absolute Locator-depth segments; no packet field",
         },
         "locator": {
             "per_node_components": distribution(
@@ -257,10 +295,30 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
                 else None
             ),
         },
+        "attachment_failure_distributions": {
+            f"h{lookahead}": {
+                "changed_objects": distribution(
+                    (
+                        float(row["strategies"][f"attachment_h{lookahead}"]["control_churn"]["changed_objects"])
+                        for row in failures
+                    ),
+                    (50, 95, 99),
+                ),
+                "changed_node_fraction": distribution(
+                    (
+                        float(row["strategies"][f"attachment_h{lookahead}"]["control_churn"]["changed_node_fraction"])
+                        for row in failures
+                    ),
+                    (50, 95, 99),
+                ),
+            }
+            for lookahead in (1, 2, 3, "full")
+        },
         "definitions": {
             "oracle": "Phase-2 recursive path oracle; may query hidden remote target interior",
             "distributed": "compiled per-node FIB lookup; physical graph used only by executor",
             "scoped_potential": "R0-independent neighbor-exchange fixed point with strict descent",
+            "attachment": "bottom-up boundary terminal costs; no descendant topology exposed",
             "state": "persistent owner-local and remote summary/FIB objects; locator reference components charged",
             "excluded": "simulator route cache, transient Dijkstra work, availability replication",
         },
@@ -286,7 +344,7 @@ def _eligible_distribution(network: ForwardingNetwork) -> dict[str, Any]:
 
 
 def _potential_churn(before: ForwardingNetwork, after: ForwardingNetwork, nodes: frozenset[Node]) -> dict[str, Any]:
-    categories = {"potential_record", "eligible_next_hop"}
+    categories = {"potential_record", "eligible_next_hop", "attachment_advertisement"}
     keys = {
         key
         for key in before.state.objects.keys() | after.state.objects.keys()
@@ -296,10 +354,53 @@ def _potential_churn(before: ForwardingNetwork, after: ForwardingNetwork, nodes:
     levels = sorted({key[2].count(".") for key in keys if key[2] != "local"})
     return {
         "changed_objects": len(keys),
+        "changed_by_category": {category: sum(key[1] == category for key in keys) for category in sorted(categories)},
         "changed_nodes": len(changed_nodes),
         "changed_node_fraction": len(changed_nodes) / len(nodes) if nodes else 0.0,
         "scope_depths_reached": levels,
         "reached_root": 0 in levels,
+    }
+
+
+def _attachment_comparison(
+    graph: Graph,
+    flat: FlatRouting,
+    networks: dict[Lookahead, ForwardingNetwork],
+    pairs: list[tuple[Node, Node]],
+    budget: int,
+    sampled: bool,
+) -> dict[str, Any]:
+    costs: dict[Lookahead, list[float | None]] = {}
+    for lookahead, network in networks.items():
+        costs[lookahead] = [
+            result.cost if result.status == "delivered" else None
+            for source, target in pairs
+            for result in (execute_forwarding(network, graph, source, network.catalog.by_node[target], budget),)
+        ]
+    flat_costs = [path.cost if (path := flat.route(source, target)) is not None else None for source, target in pairs]
+    full_costs = costs["full"]
+    hierarchy = [
+        full / shortest
+        for full, shortest in zip(full_costs, flat_costs, strict=True)
+        if full is not None and shortest is not None
+    ]
+    limited: dict[str, Any] = {}
+    for lookahead in (1, 2, 3):
+        ratios = [
+            candidate / full
+            for candidate, full in zip(costs[lookahead], full_costs, strict=True)
+            if candidate is not None and full is not None
+        ]
+        limited[f"h{lookahead}"] = {
+            "information_stretch": distribution(ratios, (50, 95, 99)),
+            "ordering_violations_below_full": sum(value < 1.0 - 1e-12 for value in ratios),
+        }
+    return {
+        "sampled": sampled,
+        "pair_count": len(pairs),
+        "hierarchy_stretch_full_over_flat": distribution(hierarchy, (50, 95, 99)),
+        "full_below_flat_violations": sum(value < 1.0 - 1e-12 for value in hierarchy),
+        "limited": limited,
     }
 
 
