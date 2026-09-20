@@ -1,5 +1,7 @@
 # Theory-Driven Architecture Revision
 
+> **Research reconciliation note, not the NetSynth architecture specification.** Several abstractions below (generic RoutingScheme, Routing Descriptor, generic mutable header/session interfaces) describe the design space or simulator needs. They must not be promoted into NetSynth's common architecture until re-derived from the scale-by-scale architecture process. See `docs/architecture-recentering.md`.
+>
 > Status: design reconciliation in progress. This document does not authorize implementation.
 >
 > NetSynth remains clean-slate at the protocol/compatibility layer, but adopts established routing, graph, metric, and distributed-algorithm theory whenever the model applies.
