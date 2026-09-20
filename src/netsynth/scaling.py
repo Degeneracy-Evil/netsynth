@@ -6,7 +6,8 @@ import random
 from typing import Any
 
 from netsynth.attachments import AttachmentCompilation, Lookahead, compile_attachment_forwarding
-from netsynth.decomposition import BalancedConnectedDecomposition
+from netsynth.decomposition import BalancedConnectedDecomposition, DecompositionStrategy, MetricAwareDecomposition
+from netsynth.decomposition_metrics import decomposition_quality
 from netsynth.forwarding import LocatorCatalog, compile_forwarding, compile_scoped_potentials, execute_forwarding
 from netsynth.graph import Graph
 from netsynth.metrics import churn, distribution, failure_locality, routing_state
@@ -151,18 +152,86 @@ def run_scaling(
                 }
             )
     return {
-        "schema": {"name": "netsynth.phase4.scaling", "version": "4.0"},
+        "schema": {"name": "netsynth.phase5.scaling", "version": "5.0"},
         "seed": seed,
         "controls": ["flat", "r0"],
         "candidate": {
-            "name": "hierarchical_attachment_lookahead",
+            "name": "metric_aware_scope_decomposition",
             "levels": [1, 2, 3, "full"],
             "r0_consumed": False,
         },
         "requested_pair_sample_count": pair_sample_count,
         "rows": rows,
+        "decomposition_rows": _decomposition_scaling(sizes, families, seed, pair_sample_count),
         "interpretation": "modest empirical sizes only; no asymptotic claim",
     }
+
+
+def _decomposition_scaling(
+    sizes: tuple[int, ...], families: tuple[str, ...], seed: int, pair_sample_count: int
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for family in families:
+        for size in sizes:
+            graph = generate(family, _parameters(family, size), seed)
+            leaf_size = max(2, min(8, size // 8))
+            strategies: dict[str, DecompositionStrategy] = {
+                "d0": BalancedConnectedDecomposition(leaf_size),
+                "d1": MetricAwareDecomposition(leaf_size, candidate_limit=16, seed=seed + 401),
+            }
+            all_pairs = [
+                (source, target) for source in sorted(graph.nodes) for target in sorted(graph.nodes) if source != target
+            ]
+            pairs = random.Random(seed + size).sample(all_pairs, min(pair_sample_count, len(all_pairs)))
+            flat = FlatRouting(graph)
+            for name, strategy in strategies.items():
+                tree = strategy.decompose(graph)
+                catalog = LocatorCatalog.from_tree(tree)
+                lookaheads = {
+                    lookahead: compile_attachment_forwarding(graph, graph, tree, catalog, lookahead)
+                    for lookahead in (1, 2, 3, "full")
+                }
+                metrics: dict[str, Any] = {}
+                for lookahead, compilation in lookaheads.items():
+                    outcomes = [
+                        execute_forwarding(
+                            compilation.network, graph, source, catalog.by_node[target], 4 * len(graph.nodes)
+                        )
+                        for source, target in pairs
+                    ]
+                    metrics[f"h{lookahead}"] = {
+                        "state": routing_state(compilation.network.state, graph.nodes)["normalized_size_total"],
+                        "stretch": distribution(
+                            (
+                                outcome.cost / shortest.cost
+                                for (source, target), outcome in zip(pairs, outcomes, strict=True)
+                                if (shortest := flat.route(source, target)) is not None
+                            ),
+                            (50, 95, 99),
+                        ),
+                    }
+                failures = [graph.without(edges=frozenset((edge.key,))) for edge in graph.edges]
+                connected = [failed for failed in failures if failed.is_connected()]
+                scope_breaks = sum(
+                    not all(failed.induced(scope.members).is_connected() for scope in tree.scopes())
+                    for failed in connected
+                )
+                rows.append(
+                    {
+                        "family": family,
+                        "node_count": len(graph.nodes),
+                        "decomposition": name,
+                        "parameters": strategy.parameters,
+                        "construction_cost": (
+                            strategy.construction_stats if isinstance(strategy, MetricAwareDecomposition) else {}
+                        ),
+                        "quality": decomposition_quality(graph, tree),
+                        "lookahead": metrics,
+                        "connected_single_link_failures": len(connected),
+                        "scope_break_fraction": scope_breaks / len(connected) if connected else None,
+                    }
+                )
+    return rows
 
 
 def _attachment_scaling_results(

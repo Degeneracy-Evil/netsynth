@@ -7,9 +7,11 @@ def test_phase3_exhaustive_matrix_and_reproducibility() -> None:
     config = Phase3Config("mesh2d", {"rows": 3, "columns": 3}, seed=4, leaf_size=3, failure_sample_count=1)
     first = run_phase3(config)
     assert first == run_phase3(config)
-    assert first["schema"]["version"] == "4.0"
+    assert first["schema"]["version"] == "5.0"
     assert first["sampling"]["pairs_sampled"] is False
     assert first["sampling"]["pair_count"] == 72
+    assert first["decomposition_control"]["strategy_id"] == "d0"
+    assert first["decomposition_control"]["quality"]["aggregate_distortion"]["count"] > 0
     assert set(first["strategies"]) == {
         "flat",
         "r0",

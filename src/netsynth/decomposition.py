@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import itertools
+import random
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -127,7 +130,7 @@ class DecompositionStrategy(Protocol):
     """Interchangeable scope-formation interface."""
 
     @property
-    def parameters(self) -> dict[str, int | str]:
+    def parameters(self) -> Mapping[str, int | float | str]:
         """Return reproducibility metadata."""
         ...
 
@@ -265,4 +268,177 @@ def build_quotient(graph: Graph, scope: Scope) -> QuotientGraph:
         Graph(set(range(len(scope.children))), quotient_edges),
         dict(enumerate(scope.children)),
         {key: tuple(sorted(edges)) for key, edges in crossings.items()},
+    )
+
+
+class MetricAwareDecomposition:
+    """Bounded global-distance research oracle for low-distortion connected Scopes."""
+
+    def __init__(
+        self,
+        leaf_size: int = 8,
+        *,
+        candidate_limit: int = 64,
+        boundary_weight: float = 0.25,
+        imbalance_weight: float = 0.1,
+        seed: int = 0,
+    ) -> None:
+        if leaf_size < 1 or candidate_limit < 1:
+            raise ValueError("leaf_size and candidate_limit must be positive")
+        if boundary_weight < 0 or imbalance_weight < 0:
+            raise ValueError("objective weights cannot be negative")
+        self.leaf_size = leaf_size
+        self.candidate_limit = candidate_limit
+        self.boundary_weight = boundary_weight
+        self.imbalance_weight = imbalance_weight
+        self.seed = seed
+        self.construction_stats: dict[str, int] = {}
+
+    @property
+    def parameters(self) -> dict[str, int | float | str]:
+        """Expose the oracle's explicit multi-objective search inputs."""
+        return {
+            "name": "metric_aware_global_distance_oracle",
+            "leaf_size": self.leaf_size,
+            "candidate_limit_per_scope": self.candidate_limit,
+            "boundary_weight": self.boundary_weight,
+            "imbalance_weight": self.imbalance_weight,
+            "seed": self.seed,
+            "formation_model": "centralized_research_oracle_not_deployable",
+        }
+
+    def decompose(self, graph: Graph) -> ScopeTree:
+        """Choose connected recursive splits using measured weighted distortion."""
+        if not graph.is_connected():
+            raise ValueError("decomposition currently requires a connected graph")
+        global_distances, global_work = _weighted_pair_distances(graph, graph.nodes)
+        counters = {
+            "candidate_splits_evaluated": 0,
+            "candidate_splits_rejected": 0,
+            "shortest_path_computations": global_work,
+        }
+
+        def split(members: frozenset[Node], identifier: str) -> Scope:
+            if len(members) <= self.leaf_size:
+                return Scope(identifier, members)
+            candidates = _metric_candidates(graph, members, self.candidate_limit, self.seed, counters)
+            control = _connected_bisection(graph, members)
+            if control not in candidates and (control[1], control[0]) not in candidates:
+                candidates.append(control)
+            scored: list[
+                tuple[tuple[float, float, float, tuple[Node, ...]], tuple[frozenset[Node], frozenset[Node]]]
+            ] = []
+            for left, right in candidates:
+                counters["candidate_splits_evaluated"] += 1
+                if not graph.induced(left).is_connected() or not graph.induced(right).is_connected():
+                    counters["candidate_splits_rejected"] += 1
+                    continue
+                distortion, work = _split_distortion(graph, (left, right), global_distances)
+                counters["shortest_path_computations"] += work
+                boundary_ratio = _split_boundary_count(graph, left, right) / len(members)
+                imbalance = abs(len(left) - len(right)) / len(members)
+                objective = distortion + self.boundary_weight * boundary_ratio + self.imbalance_weight * imbalance
+                scored.append(((objective, distortion, boundary_ratio, tuple(sorted(left))), (left, right)))
+            if not scored:
+                raise ValueError("metric-aware oracle found no connected split")
+            left, right = min(scored)[1]
+            return Scope(identifier, members, (split(left, f"{identifier}.0"), split(right, f"{identifier}.1")))
+
+        tree = ScopeTree(split(graph.nodes, "s"))
+        tree.validate(graph)
+        self.construction_stats = {**counters, "global_pair_count": len(global_distances)}
+        return tree
+
+
+@dataclass(frozen=True)
+class PoorConnectedDecomposition:
+    """Deterministic unbalanced connected hierarchy used as a negative control."""
+
+    leaf_size: int = 8
+
+    @property
+    def parameters(self) -> dict[str, int | str]:
+        return {"name": "poor_connected_peel", "leaf_size": self.leaf_size}
+
+    def decompose(self, graph: Graph) -> ScopeTree:
+        if self.leaf_size < 1 or not graph.is_connected():
+            raise ValueError("poor decomposition requires a connected graph and positive leaf size")
+
+        def split(members: frozenset[Node], identifier: str) -> Scope:
+            if len(members) <= self.leaf_size:
+                return Scope(identifier, members)
+            peeled = next(node for node in sorted(members) if graph.induced(members.difference((node,))).is_connected())
+            left, right = frozenset((peeled,)), members.difference((peeled,))
+            return Scope(identifier, members, (Scope(f"{identifier}.0", left), split(right, f"{identifier}.1")))
+
+        tree = ScopeTree(split(graph.nodes, "s"))
+        tree.validate(graph)
+        return tree
+
+
+def _metric_candidates(
+    graph: Graph,
+    members: frozenset[Node],
+    limit: int,
+    seed: int,
+    counters: dict[str, int],
+) -> list[tuple[frozenset[Node], frozenset[Node]]]:
+    pairs = list(itertools.combinations(sorted(members), 2))
+    if len(pairs) > limit:
+        pairs = random.Random(seed + sum(members) + len(members)).sample(pairs, limit)
+    subgraph = graph.induced(members)
+    cache: dict[Node, dict[Node, float]] = {}
+    candidates: list[tuple[frozenset[Node], frozenset[Node]]] = []
+    for first, second in sorted(pairs):
+        for source in (first, second):
+            if source not in cache:
+                cache[source] = {}
+                for target in members:
+                    path = subgraph.shortest_path(source, target)
+                    counters["shortest_path_computations"] += 1
+                    if path is not None:
+                        cache[source][target] = path.cost
+        left = frozenset(node for node in members if (cache[first][node], node) <= (cache[second][node], -node))
+        right = members.difference(left)
+        if left and right and (left, right) not in candidates and (right, left) not in candidates:
+            candidates.append((left, right))
+    return candidates
+
+
+def _weighted_pair_distances(graph: Graph, members: frozenset[Node]) -> tuple[dict[tuple[Node, Node], float], int]:
+    distances: dict[tuple[Node, Node], float] = {}
+    work = 0
+    for left, right in itertools.combinations(sorted(members), 2):
+        path = graph.shortest_path(left, right)
+        work += 1
+        if path is not None:
+            distances[(left, right)] = path.cost
+    return distances, work
+
+
+def _split_distortion(
+    graph: Graph,
+    children: tuple[frozenset[Node], frozenset[Node]],
+    global_distances: dict[tuple[Node, Node], float],
+) -> tuple[float, int]:
+    maximum = 1.0
+    work = 0
+    for members in children:
+        induced = graph.induced(members)
+        for left, right in itertools.combinations(sorted(members), 2):
+            path = induced.shortest_path(left, right)
+            work += 1
+            if path is not None:
+                maximum = max(maximum, path.cost / global_distances[(left, right)])
+    return maximum, work
+
+
+def _split_boundary_count(graph: Graph, left: frozenset[Node], right: frozenset[Node]) -> int:
+    return len(
+        {
+            node
+            for edge in graph.edges
+            for node, other in ((edge.left, edge.right), (edge.right, edge.left))
+            if (node in left and other in right) or (node in right and other in left)
+        }
     )

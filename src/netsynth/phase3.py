@@ -9,7 +9,15 @@ from pathlib import Path
 from typing import Any
 
 from netsynth.attachments import Lookahead, compile_attachment_forwarding
-from netsynth.decomposition import BalancedConnectedDecomposition, Scope, ScopeTree
+from netsynth.decomposition import (
+    BalancedConnectedDecomposition,
+    DecompositionStrategy,
+    MetricAwareDecomposition,
+    PoorConnectedDecomposition,
+    Scope,
+    ScopeTree,
+)
+from netsynth.decomposition_metrics import decomposition_quality
 from netsynth.failures import random_link_set_event, sample_events, single_link_events, single_node_events
 from netsynth.forwarding import (
     ForwardingNetwork,
@@ -25,7 +33,7 @@ from netsynth.routing import CompressedRouting, FlatRouting
 from netsynth.summaries import SummaryBuilder, SummaryConfig
 from netsynth.topology import generate
 
-SCHEMA_VERSION = "4.0"
+SCHEMA_VERSION = "5.0"
 
 
 @dataclass(frozen=True)
@@ -45,12 +53,18 @@ class Phase3Config:
     label_permutation_seed: int | None = None
     fixed_structure_label_seed: int | None = None
     hop_budget: int | None = None
+    decomposition: str = "d0"
+    d1_candidate_limit: int = 64
+    d1_boundary_weight: float = 0.25
+    d1_imbalance_weight: float = 0.1
 
 
 def run_phase3(config: Phase3Config) -> dict[str, Any]:
     """Compare flat, recursive oracle, and distributed routes on the same instance."""
     graph = _transform(generate(config.topology_family, config.topology_parameters, config.seed), config)
-    tree = BalancedConnectedDecomposition(config.leaf_size).decompose(graph)
+    decomposition = _decomposition(config)
+    tree = decomposition.decompose(graph)
+    construction = decomposition.construction_stats if isinstance(decomposition, MetricAwareDecomposition) else {}
     if config.fixed_structure_label_seed is not None:
         graph, tree = _relabel_structure(graph, tree, config.fixed_structure_label_seed)
     catalog = LocatorCatalog.from_tree(tree)
@@ -218,8 +232,11 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
         "schema": {"name": "netsynth.phase3", "version": SCHEMA_VERSION},
         "topology": _topology_metadata(config, graph),
         "decomposition_control": {
-            "parameters": {"name": "balanced_connected", "leaf_size": config.leaf_size},
+            "strategy_id": config.decomposition,
+            "parameters": decomposition.parameters,
+            "construction_cost": construction,
             **tree.describe(graph),
+            "quality": decomposition_quality(graph, tree),
         },
         "sampling": {
             "pairs_sampled": sampled,
@@ -323,6 +340,22 @@ def run_phase3(config: Phase3Config) -> dict[str, Any]:
             "excluded": "simulator route cache, transient Dijkstra work, availability replication",
         },
     }
+
+
+def _decomposition(config: Phase3Config) -> DecompositionStrategy:
+    if config.decomposition == "d0":
+        return BalancedConnectedDecomposition(config.leaf_size)
+    if config.decomposition == "d1":
+        return MetricAwareDecomposition(
+            config.leaf_size,
+            candidate_limit=config.d1_candidate_limit,
+            boundary_weight=config.d1_boundary_weight,
+            imbalance_weight=config.d1_imbalance_weight,
+            seed=config.seed + 401,
+        )
+    if config.decomposition == "dbad":
+        return PoorConnectedDecomposition(config.leaf_size)
+    raise ValueError("decomposition must be d0, d1, or dbad")
 
 
 _STATUSES = ("delivered", "no_route", "invalid_next_hop", "loop", "hop_budget_exhausted")

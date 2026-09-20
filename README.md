@@ -25,10 +25,10 @@ Compatibility with existing network protocols, security, wireless/weak-network b
 
 The codebase uses Python 3.14, uv, Ruff, mypy, and pytest.
 
-## Running Phase-4 experiments
+## Running Phase-5 experiments
 
 Run the built-in exhaustive small-graph suite. It compares Flat shortest paths, the Phase-2 recursive oracle,
-R0/S0/S1/S2/S3 controls, scoped-potential forwarding, and attachment lookahead `h=1/2/3/full`. It includes two seeds per family, a label-only
+R0/S0/S1/S2/S3 controls, fixed attachment lookahead, and D0/D1/Dbad Scope decompositions. It includes multiple seeds, a label-only
 permutation, a fixed-structure relabeling control, and a skewed-link-cost variant. Every strategy on one graph shares the same fixed decomposition,
 ordered source/destination pairs, and failure events:
 
@@ -51,7 +51,11 @@ Or pass `--config experiment.json`. The file may contain one object or a list of
   "cost_profile": "skewed",
   "label_permutation_seed": 17,
   "fixed_structure_label_seed": 19,
-  "hop_budget": 100
+  "hop_budget": 100,
+  "decomposition": "d1",
+  "d1_candidate_limit": 64,
+  "d1_boundary_weight": 0.25,
+  "d1_imbalance_weight": 0.1
 }
 ```
 
@@ -90,12 +94,18 @@ not descendant topology. Finite lookahead uses Locator-depth segment checkpoints
 active checkpoint from its own Locator and the unchanged destination Locator; full lookahead carries exact
 destination attachment values through the hierarchy. Output separates information stretch (`h/full`) from
 hierarchy stretch (`full/Flat`) and charges attachment, potential, and eligible-next-hop records independently.
+
+Phase 5 keeps those forwarding semantics fixed and varies only Scope formation. `D0` is the historical balanced
+connected split, `D1` is a bounded global-weighted-distance research oracle, and `Dbad` is an intentionally
+unbalanced connected control. Results report per-Scope internal/global metric distortion, boundary interfaces,
+crossing links, construction-work counters, failure fragility, and forwarding state/stretch. D1 is centralized and
+expensive by design; it is not presented as a deployable formation protocol.
 Failure output separately classifies physical partitions, changed boundary reachability, unchanged boundary relation,
 and cases where a fixed scope loses internal connectivity while the physical graph stays connected. Such cases can
 remain unreachable under the prefix-monotone forwarding domain. Scoped potentials eliminate stable loops when
 every fixed Scope remains connected; scope-breaking repair and destination/component attachment remain out of scope.
 
-Run the modest lookahead scaling study (16, 32, 64, and 128 nodes by default) with:
+Run the modest D0/D1 scaling study (16, 32, 64, and 128 nodes by default) with:
 
 ```bash
 uv run --locked python src/scaling_main.py --output scaling.json

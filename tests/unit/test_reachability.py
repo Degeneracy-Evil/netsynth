@@ -140,7 +140,7 @@ def test_r0_persistent_summary_state_is_linear_in_boundary_interfaces() -> None:
 
 def test_scaling_output_marks_sampling_and_reachability_state() -> None:
     result = run_scaling(sizes=(16, 32), families=("tree", "mesh2d"), seed=3, pair_sample_count=32)
-    assert result["schema"]["version"] == "4.0"
+    assert result["schema"]["version"] == "5.0"
     assert len(result["rows"]) == 4
     for row in result["rows"]:
         assert row["pairs"] == {"count": 32, "sampled": True}
