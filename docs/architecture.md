@@ -1,8 +1,18 @@
 # NetSynth Architecture Notes
 
-> Status: exploratory architecture, not a protocol specification.
+> **Historical derivation record.** This document preserves the Phase-0 through Phase-5 clean-slate reasoning, but several routing/naming conclusions have been superseded by theory reconciliation. In particular, a laminar ScopeTree, Structured Locator, explicit Endpoint-ID/Locator split, and fixed minimal packet routing header are no longer universal NetSynth requirements.
 >
-> This document records the reasoning that has survived the current design discussion. It intentionally distinguishes derived requirements from candidate mechanisms.
+> For current research semantics, read first:
+>
+> - `docs/research-method.md`
+> - `docs/theory-reconciliation.md`
+> - `docs/theory-driven-architecture-revision.md`
+> - `docs/compact-routing-resource-model.md`
+> - `docs/naming-routing-reconciliation.md`
+> - `docs/routing-object-model-v2.md`
+> - `docs/theory-baseline-registry.md`
+>
+> The Scale 0-3 derivation and general design principles remain useful unless explicitly superseded. Sections describing Scope/Locator/Rendezvous should be interpreted as historical candidate mechanisms.
 
 ## 1. Goal and boundary
 
