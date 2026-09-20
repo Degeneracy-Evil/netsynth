@@ -66,6 +66,38 @@ routing                 = graph routing，不是 tree routing
 
 Scope 默认不得绑定国家、地区、运营商、厂商、数据中心、机架或行政组织语义。
 
+
+## Theory reconciliation gate
+
+Clean-slate 只表示不继承历史协议语义和兼容性约束，**不表示重新发明成熟数学**。
+
+在提出或实现任何新的 Phase、routing mechanism、summary、decomposition、shortcut 或大规模实验之前，必须先阅读 `docs/research-method.md` 和 `docs/theory-reconciliation.md`，并完成 theory reconciliation。
+
+至少先回答：
+
+- 当前问题对应哪个标准数学/理论计算机科学问题；
+- 已知最强 upper/lower bound、impossibility、approximation/hardness 和特殊 graph-family 结果是什么；
+- 是否已有 compact routing、spanner/emulator、distance oracle/preserver、metric embedding、sparse cover/separator、routing labeling、distributed shortest-path、connectivity/fault-tolerant routing 等 construction 可以直接采用；
+- NetSynth 与这些模型究竟有什么**具体差异**；
+- simulator 要验证的是哪个 NetSynth-specific delta，而不是哪个已有 theorem。
+
+如果已有理论已经回答数学核心，必须采用/引用该结果，禁止用大规模 simulator sweep 重新“发现”同一结论。
+
+未来 Phase 文档必须先写清：
+
+```text
+Mathematical abstraction
+Closest established problems
+Known upper bounds
+Known lower bounds / impossibility
+Known constructions
+Why these results do not fully answer NetSynth
+NetSynth-specific question
+Minimal experiment required
+```
+
+这些内容没有完成之前，不进入实现阶段。
+
 ## 实验纪律
 
 - 所有实验必须可复现，机器可读输出中保存 topology 参数、seed、decomposition/routing 参数和 metric schema/version。
