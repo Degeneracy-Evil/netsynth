@@ -147,15 +147,17 @@ The implementation may use label swapping so that the continuation label exposed
 
 The architecture does not require a globally meaningful pathlet identifier.
 
-## 7. Stack-depth bound
+## 7. Header-growth bound
 
-Because Scope membership is laminar and an STP realization can delegate only to routing objects in proper descendant Scopes, nested invocation depth is bounded by Scope hierarchy depth.
+Two different quantities must be separated.
 
-Sequential pathlets at the same level are pushed and popped rather than accumulated.
+Recursive invocation depth is bounded by Scope hierarchy depth because an STP may delegate only into proper descendant Scopes.
 
-Therefore the packet does not carry a path-length-sized source route.
+However, a compiled Route Program may contain a **sequence** of STPs at the same level. Those remaining sequential FIDs are packet-carried state. Therefore total route-header size can grow with the abstract pathlet length, in addition to temporary nested expansion.
 
-This is a key difference from an arbitrary end-to-end segment list.
+NetSynth does **not** claim an O(hierarchy-depth) total header bound.
+
+This is an explicit cost of moving destination-specific route state out of transit routers. Any future compression of Route Programs must be justified separately and must account for whatever persistent state it introduces.
 
 ## 8. No mandatory per-flow state in forwarding nodes
 
@@ -191,9 +193,11 @@ The relevant cost is no longer an arbitrary generic header budget.
 It is specifically:
 
 ~~~text
-maximum nested Transit Stack depth
-x
-per-level Transit Label width
+sequential Route Program length
++
+maximum nested expansion depth
++
+Transit Label widths
 ~~~
 
 plus minimal stack framing/operation semantics.
