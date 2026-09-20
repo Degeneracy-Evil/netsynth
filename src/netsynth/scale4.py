@@ -6,6 +6,7 @@ general routing framework or a pathlet-selection algorithm.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from heapq import heappop, heappush
 from itertools import count, pairwise
@@ -13,7 +14,6 @@ from math import inf
 from types import MappingProxyType
 from typing import Literal
 
-from netsynth.decomposition import Scope
 from netsynth.forwarding import Locator
 from netsynth.graph import Graph, Node
 
@@ -107,84 +107,129 @@ class BoundaryTransitGraph:
 class PathletRegistry:
     """Scope-owned hard contracts and hidden forwarding realizations."""
 
-    def __init__(self, scope: Scope) -> None:
-        self.scope_id = scope.identifier
-        self._members = scope.members
-        self._descendant_scope_ids = frozenset(_descendant_ids(scope))
-        self._active: dict[PathletHandle, ScopedTransitPathlet] = {}
-        self._retired: set[PathletHandle] = set()
+    def __init__(
+        self,
+        scope_id: str,
+        physical_actions: frozenset[PhysicalHop],
+        child_btgs: tuple[BoundaryTransitGraph, ...] = (),
+    ) -> None:
+        child_ids = [btg.scope_id for btg in child_btgs]
+        if len(child_ids) != len(set(child_ids)):
+            raise ValueError("pathlet registry may receive one BTG per immediate child")
+        if scope_id in child_ids:
+            raise ValueError("a Scope cannot consume its own BTG as an immediate-child contract")
+        self.scope_id = scope_id
+        self._physical_actions = physical_actions
+        self._immediate_child_contracts = {pathlet.handle: pathlet for btg in child_btgs for pathlet in btg.pathlets}
+        self._active_by_slot: dict[int, ScopedTransitPathlet] = {}
+        self._generation_high_water: dict[int, int] = {}
 
     def publish(self, pathlet: ScopedTransitPathlet) -> None:
         """Install one generation without replacing or reviving another one."""
         handle = pathlet.advertisement.handle
         if handle.owner_scope != self.scope_id:
             raise ValueError("registry can publish only locally owned pathlets")
-        if pathlet.advertisement.ingress not in self._members or pathlet.advertisement.egress not in self._members:
-            raise ValueError("pathlet boundaries must belong to the owner Scope")
-        if handle in self._active or handle in self._retired:
-            raise ValueError("a pathlet generation cannot be reused")
-        self._validate_realization(pathlet.realization)
-        self._active[handle] = pathlet
+        if handle.slot in self._active_by_slot:
+            raise ValueError("a pathlet slot already has an active generation")
+        previous = self._generation_high_water.get(handle.slot)
+        if previous is not None and handle.generation <= previous:
+            raise ValueError("pathlet generation must increase monotonically per slot")
+        self._validate_pathlet(pathlet)
+        self._active_by_slot[handle.slot] = pathlet
+        self._generation_high_water[handle.slot] = handle.generation
 
     def lookup(self, handle: PathletHandle) -> ScopedTransitPathlet | None:
         """Resolve only the exact active generation; never alias by slot."""
-        return self._active.get(handle)
+        pathlet = self._active_by_slot.get(handle.slot)
+        return pathlet if pathlet is not None and pathlet.advertisement.handle == handle else None
 
     def repair(self, handle: PathletHandle, realization: tuple[RouteAction, ...]) -> None:
         """Replace hidden realization while preserving the hard generation."""
-        current = self._active.get(handle)
+        current = self.lookup(handle)
         if current is None:
             raise KeyError(handle)
-        self._validate_realization(realization)
-        self._active[handle] = replace(current, realization=realization)
+        repaired = replace(current, realization=realization)
+        self._validate_pathlet(repaired)
+        self._active_by_slot[handle.slot] = repaired
 
     def update_soft_metric(self, handle: PathletHandle, metric: float) -> None:
         """Update route quality without changing the hard contract generation."""
         if metric <= 0:
             raise ValueError("a pathlet metric must be positive")
-        current = self._active.get(handle)
+        current = self.lookup(handle)
         if current is None:
             raise KeyError(handle)
         advertisement = replace(current.advertisement, soft_metric=metric)
-        self._active[handle] = replace(current, advertisement=advertisement)
+        self._active_by_slot[handle.slot] = replace(current, advertisement=advertisement)
 
     def retire(self, handle: PathletHandle) -> None:
         """Make an exact generation fail closed for all subsequent packets."""
-        if handle not in self._active:
+        if self.lookup(handle) is None:
             raise KeyError(handle)
-        del self._active[handle]
-        self._retired.add(handle)
+        del self._active_by_slot[handle.slot]
 
     def export(self, boundaries: frozenset[Node]) -> BoundaryTransitGraph:
         """Create an opaque BTG containing no realization actions."""
-        if not boundaries.issubset(self._members):
-            raise ValueError("exported boundaries must belong to the owner Scope")
         advertisements = tuple(
-            sorted((pathlet.advertisement for pathlet in self._active.values()), key=lambda item: item.handle)
+            sorted((pathlet.advertisement for pathlet in self._active_by_slot.values()), key=lambda item: item.handle)
         )
+        if any(
+            advertisement.ingress not in boundaries or advertisement.egress not in boundaries
+            for advertisement in advertisements
+        ):
+            raise ValueError("exported pathlet endpoints must be declared owner boundaries")
         return BoundaryTransitGraph(self.scope_id, boundaries, advertisements)
 
-    def _validate_realization(self, realization: tuple[RouteAction, ...]) -> None:
-        for action in realization:
-            if isinstance(action, PhysicalHop) and (
-                action.left not in self._members or action.right not in self._members
-            ):
-                raise ValueError("pathlet physical hops must remain inside the owner Scope")
-            if isinstance(action, PathletHandle) and action.owner_scope not in self._descendant_scope_ids:
-                raise ValueError("pathlets may delegate only into proper descendant Scopes")
-            if isinstance(action, AccessHandle):
-                raise ValueError("persistent pathlets cannot depend on query-time access state")
+    def _validate_pathlet(self, pathlet: ScopedTransitPathlet) -> None:
+        advertised = pathlet.advertisement
+        _validate_action_sequence(
+            advertised.ingress,
+            advertised.egress,
+            pathlet.realization,
+            self._physical_actions,
+            self._immediate_child_contracts,
+        )
 
     @property
     def persistent_records(self) -> int:
-        """Charge hard metadata, realizations, and retained anti-alias tombstones."""
-        return 1 + sum(1 + len(pathlet.realization) for pathlet in self._active.values()) + len(self._retired)
+        """Charge active realizations plus one generation watermark per used slot."""
+        return (
+            1
+            + len(self._generation_high_water)
+            + sum(1 + len(pathlet.realization) for pathlet in self._active_by_slot.values())
+        )
+
+    @property
+    def generation_record_count(self) -> int:
+        """Expose bounded semantic history for validation/accounting."""
+        return len(self._generation_high_water)
 
 
-def _descendant_ids(scope: Scope) -> tuple[str, ...]:
-    return tuple(child.identifier for child in scope.children) + tuple(
-        identifier for child in scope.children for identifier in _descendant_ids(child)
-    )
+def _validate_action_sequence(
+    start: Node,
+    end: Node,
+    actions: tuple[RouteAction, ...],
+    physical_actions: frozenset[PhysicalHop],
+    child_contracts: dict[PathletHandle, AdvertisedPathlet],
+) -> None:
+    current = start
+    for action in actions:
+        if isinstance(action, PhysicalHop):
+            if action not in physical_actions:
+                raise ValueError("physical action is not visible at the owner Scope level")
+            action_start, action_end = action.left, action.right
+        elif isinstance(action, PathletHandle):
+            contract = child_contracts.get(action)
+            if contract is None:
+                raise ValueError("pathlet action is not exported by an immediate child")
+            action_start, action_end = contract.ingress, contract.egress
+        else:
+            raise ValueError("persistent owner-local realizations cannot contain AccessHandles")
+        if action_start != current:
+            raise ValueError("realization actions must be continuous from the advertised ingress")
+        current = action_end
+    if current != end:
+        raise ValueError("realization must end at the advertised egress")
 
 
 @dataclass(frozen=True)
@@ -208,6 +253,10 @@ class SourceAccessOffer:
     cost: float
     handle: AccessHandle
 
+    def __post_init__(self) -> None:
+        if self.cost < 0:
+            raise ValueError("access cost cannot be negative")
+
 
 @dataclass(frozen=True)
 class DestinationAccessOffer:
@@ -217,39 +266,98 @@ class DestinationAccessOffer:
     cost: float
     handle: AccessHandle
 
+    def __post_init__(self) -> None:
+        if self.cost < 0:
+            raise ValueError("access cost cannot be negative")
+
 
 @dataclass(frozen=True)
 class AccessRealization:
-    """Ingress-local query state hidden from the parent Route Service."""
+    """Owner-local ephemeral realization hidden from parent and ingress."""
 
     start: Node
     end: Node
     actions: tuple[RouteAction, ...]
 
 
-@dataclass(frozen=True)
-class RouteQueryContext:
-    """Ephemeral access state retained only by the requesting edge/control service."""
+class AccessRegistry:
+    """One Scope's opaque, ephemeral realization state for one route query."""
 
-    query_id: str
-    source: Node
-    destination: Node
-    realizations: MappingProxyType[AccessHandle, AccessRealization]
+    def __init__(
+        self,
+        scope_id: str,
+        query_id: str,
+        boundaries: frozenset[Node],
+        physical_actions: frozenset[PhysicalHop],
+        child_btgs: tuple[BoundaryTransitGraph, ...] = (),
+    ) -> None:
+        child_ids = [btg.scope_id for btg in child_btgs]
+        if len(child_ids) != len(set(child_ids)) or scope_id in child_ids:
+            raise ValueError("Access registry child BTGs must name distinct immediate children")
+        self.scope_id = scope_id
+        self.query_id = query_id
+        self.boundaries = boundaries
+        self._physical_actions = physical_actions
+        self._immediate_child_contracts = {pathlet.handle: pathlet for btg in child_btgs for pathlet in btg.pathlets}
+        self._realizations: dict[AccessHandle, AccessRealization] = {}
 
-    def __post_init__(self) -> None:
-        if any(handle.query_id != self.query_id for handle in self.realizations):
-            raise ValueError("access realization belongs to a different query")
-        if any(
-            isinstance(action, AccessHandle)
-            for realization in self.realizations.values()
-            for action in realization.actions
-        ):
-            raise ValueError("query-time access realizations must be flattened before execution")
+    def publish_source(self, offer: SourceAccessOffer, realization: AccessRealization) -> None:
+        """Validate and retain an opaque source-to-boundary offer locally."""
+        self._validate_offer(offer.handle, offer.boundary)
+        if realization.end != offer.boundary:
+            raise ValueError("source Access Offer must end at its advertised boundary")
+        self._publish(offer.handle, realization)
+
+    def publish_destination(self, offer: DestinationAccessOffer, realization: AccessRealization) -> None:
+        """Validate and retain an opaque boundary-to-destination offer locally."""
+        self._validate_offer(offer.handle, offer.boundary)
+        if realization.start != offer.boundary:
+            raise ValueError("destination Access Offer must start at its advertised boundary")
+        self._publish(offer.handle, realization)
+
+    def _validate_offer(self, handle: AccessHandle, boundary: Node) -> None:
+        if handle.owner_scope != self.scope_id:
+            raise ValueError("Access Offer owner does not match its owner-local registry")
+        if handle.query_id != self.query_id:
+            raise ValueError("Access Offer query does not match its owner-local registry")
+        if boundary not in self.boundaries:
+            raise ValueError("Access Offer endpoint is not an owner boundary")
+
+    def _publish(self, handle: AccessHandle, realization: AccessRealization) -> None:
+        if handle in self._realizations:
+            raise ValueError("Access Handle cannot be reused within one query")
+        _validate_action_sequence(
+            realization.start,
+            realization.end,
+            realization.actions,
+            self._physical_actions,
+            self._immediate_child_contracts,
+        )
+        self._realizations[handle] = realization
+
+    def lookup(self, handle: AccessHandle) -> AccessRealization | None:
+        """Resolve an exact handle only inside its owning query-local registry."""
+        if handle.owner_scope != self.scope_id or handle.query_id != self.query_id:
+            return None
+        return self._realizations.get(handle)
 
     @property
     def charged_records(self) -> int:
-        """Charge each access object and each action in its opaque realization."""
-        return 1 + sum(1 + len(realization.actions) for realization in self.realizations.values())
+        """Charge the ephemeral registry, access objects, and their actions."""
+        return 1 + sum(1 + len(realization.actions) for realization in self._realizations.values())
+
+
+@dataclass(frozen=True)
+class RouteQueryContext:
+    """Ingress-visible query identity and source, with no Access realizations."""
+
+    query_id: str
+    source: Node
+
+    @property
+    def charged_records(self) -> int:
+        """Charge the ingress-local query identity/source record."""
+        return 1
 
 
 @dataclass(frozen=True)
@@ -291,33 +399,31 @@ class ScopeRouteService:
 
     def __init__(
         self,
-        scope: Scope,
+        scope_id: str,
+        immediate_child_ids: tuple[str, ...],
+        boundary_owner: Mapping[Node, str],
         child_btgs: tuple[BoundaryTransitGraph, ...],
         crossings: tuple[CrossingLink, ...],
     ) -> None:
         child_ids = [btg.scope_id for btg in child_btgs]
-        if len(child_ids) != len(set(child_ids)):
+        if len(child_ids) != len(set(child_ids)) or len(immediate_child_ids) != len(set(immediate_child_ids)):
             raise ValueError("a Route Service may store one BTG per immediate child")
-        expected_ids = {child.identifier for child in scope.children}
-        if set(child_ids) != expected_ids:
+        if set(child_ids) != set(immediate_child_ids):
             raise ValueError("Route Service BTGs must correspond exactly to immediate child Scopes")
-        child_by_node = {node: child.identifier for child in scope.children for node in child.members}
-        if (
-            len(child_by_node) != sum(len(child.members) for child in scope.children)
-            or frozenset(child_by_node) != scope.members
-        ):
-            raise ValueError("immediate child Scopes must be a disjoint exact partition")
-        scope_by_id = {child.identifier: child for child in scope.children}
+        declared_boundaries = frozenset(boundary for btg in child_btgs for boundary in btg.boundaries)
+        if frozenset(boundary_owner) != declared_boundaries:
+            raise ValueError("boundary ownership must cover exactly the immediate-child BTG vertices")
         for btg in child_btgs:
-            if not btg.boundaries.issubset(scope_by_id[btg.scope_id].members):
-                raise ValueError("child BTG boundaries must belong to that immediate child Scope")
+            if any(boundary_owner[boundary] != btg.scope_id for boundary in btg.boundaries):
+                raise ValueError("BTG boundary ownership must name the exporting immediate child")
         for crossing in crossings:
-            left_child = child_by_node.get(crossing.left)
-            right_child = child_by_node.get(crossing.right)
+            left_child = boundary_owner.get(crossing.left)
+            right_child = boundary_owner.get(crossing.right)
             if left_child is None or right_child is None or left_child == right_child:
-                raise ValueError("crossing link must join two immediate child Scopes")
-        self.scope_id = scope.identifier
-        self.immediate_child_ids = tuple(child.identifier for child in scope.children)
+                raise ValueError("crossing link must join owned boundaries of two immediate child Scopes")
+        self.scope_id = scope_id
+        self.immediate_child_ids = immediate_child_ids
+        self.boundary_owner = MappingProxyType(dict(boundary_owner))
         self.child_btgs = child_btgs
         self.crossings = crossings
 
@@ -329,16 +435,28 @@ class ScopeRouteService:
 
     def compile(
         self,
+        query_id: str,
         destination: Locator,
         source_offers: tuple[SourceAccessOffer, ...],
         destination_offers: tuple[DestinationAccessOffer, ...],
     ) -> CompilationResult | None:
         """Resolve one route using only immediate-child summaries and query offers."""
-        query_ids = {offer.handle.query_id for offer in source_offers} | {
-            offer.handle.query_id for offer in destination_offers
-        }
-        if len(query_ids) > 1:
-            raise ValueError("all access offers in one pull must belong to the same query")
+
+        def validate_offer(offer: SourceAccessOffer | DestinationAccessOffer) -> None:
+            if offer.handle.query_id != query_id:
+                raise ValueError("Access Offer query identity does not match the route query")
+            if offer.handle.owner_scope not in self.immediate_child_ids:
+                raise ValueError("Access Offer owner is not an immediate child")
+            if self.boundary_owner.get(offer.boundary) != offer.handle.owner_scope:
+                raise ValueError("Access Offer boundary is not owned by its declared Scope")
+
+        for source_offer in source_offers:
+            validate_offer(source_offer)
+        for destination_offer in destination_offers:
+            validate_offer(destination_offer)
+        handles = [offer.handle for offer in source_offers] + [offer.handle for offer in destination_offers]
+        if len(handles) != len(set(handles)):
+            raise ValueError("an Access Handle may describe only one offer in a route query")
         source_key = "__query_source__"
         destination_key = "__query_destination__"
         adjacency: dict[Node | str, list[_Arc]] = {source_key: [], destination_key: []}
@@ -356,12 +474,8 @@ class ScopeRouteService:
             add_arc(crossing.left, crossing.right, crossing.cost, PhysicalHop(crossing.left, crossing.right))
             add_arc(crossing.right, crossing.left, crossing.cost, PhysicalHop(crossing.right, crossing.left))
         for source_offer in source_offers:
-            if source_offer.cost < 0:
-                raise ValueError("access cost cannot be negative")
             add_arc(source_key, source_offer.boundary, source_offer.cost, source_offer.handle)
         for destination_offer in destination_offers:
-            if destination_offer.cost < 0:
-                raise ValueError("access cost cannot be negative")
             add_arc(
                 destination_offer.boundary,
                 destination_key,
@@ -439,6 +553,7 @@ type _Frame = _ActionFrame | _CompletionFrame
 def execute_route_program(
     graph: Graph,
     registries: MappingProxyType[str, PathletRegistry],
+    access_registries: MappingProxyType[str, AccessRegistry],
     program: RouteProgram,
     context: RouteQueryContext,
     hop_budget: int,
@@ -500,7 +615,10 @@ def execute_route_program(
             stack.append(_CompletionFrame(advertised.egress, nested_depth, action))
             stack.extend(_ActionFrame(nested, nested_depth) for nested in reversed(pathlet.realization))
             continue
-        access = context.realizations.get(action)
+        if action.query_id != context.query_id:
+            return result("missing_access_state")
+        access_registry = access_registries.get(action.owner_scope)
+        access = None if access_registry is None else access_registry.lookup(action)
         if access is None:
             return result("missing_access_state")
         if current != access.start:
@@ -508,8 +626,6 @@ def execute_route_program(
         stack.append(_CompletionFrame(access.end, frame.depth))
         stack.extend(_ActionFrame(nested, frame.depth) for nested in reversed(access.actions))
 
-    if current != context.destination:
-        return result("contract_violation")
     return result("delivered")
 
 

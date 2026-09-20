@@ -10,6 +10,7 @@ from netsynth.graph import Edge, Graph
 from netsynth.scale4 import (
     AccessHandle,
     AccessRealization,
+    AccessRegistry,
     AdvertisedPathlet,
     BoundaryTransitGraph,
     CrossingLink,
@@ -45,7 +46,19 @@ def run_probe() -> dict[str, object]:
     a_scope = Scope("a", frozenset({0, 4, 6, 7}))
     b_scope = Scope("b", frozenset({1, 2, 3, 5}))
     old_handle = PathletHandle("b", 0, 0)
-    registry = PathletRegistry(b_scope)
+    registry = PathletRegistry(
+        "b",
+        frozenset(
+            {
+                PhysicalHop(1, 2),
+                PhysicalHop(2, 3),
+                PhysicalHop(3, 2),
+                PhysicalHop(2, 1),
+                PhysicalHop(1, 5),
+                PhysicalHop(5, 3),
+            }
+        ),
+    )
     registry.publish(
         ScopedTransitPathlet(
             AdvertisedPathlet(old_handle, 1, 3, 2.0),
@@ -65,7 +78,9 @@ def run_probe() -> dict[str, object]:
     )
     ScopeTree(root).validate(graph)
     service = ScopeRouteService(
-        root,
+        "root",
+        ("a", "b"),
+        {0: "a", 4: "a", 1: "b", 3: "b"},
         (
             BoundaryTransitGraph(
                 "a",
@@ -83,27 +98,27 @@ def run_probe() -> dict[str, object]:
     destination_handle = AccessHandle("a", "probe", 1)
     source_offers = (SourceAccessOffer(0, 1.0, source_handle),)
     destination_offers = (DestinationAccessOffer(4, 1.0, destination_handle),)
-    context = RouteQueryContext(
+    access_registry = AccessRegistry(
+        "a",
         "probe",
-        6,
-        7,
-        MappingProxyType(
-            {
-                source_handle: AccessRealization(6, 0, (PhysicalHop(6, 0),)),
-                destination_handle: AccessRealization(4, 7, (PhysicalHop(4, 7),)),
-            }
-        ),
+        frozenset({0, 4}),
+        frozenset({PhysicalHop(6, 0), PhysicalHop(4, 7)}),
     )
-    compiled = service.compile(Locator((0,), 7), source_offers, destination_offers)
+    access_registry.publish_source(source_offers[0], AccessRealization(6, 0, (PhysicalHop(6, 0),)))
+    access_registry.publish_destination(destination_offers[0], AccessRealization(4, 7, (PhysicalHop(4, 7),)))
+    context = RouteQueryContext("probe", 6)
+    compiled = service.compile("probe", Locator((0,), 7), source_offers, destination_offers)
     if compiled is None:
         raise AssertionError("adversarial probe unexpectedly has no abstract route")
     registries = MappingProxyType({"b": registry})
-    baseline = execute_route_program(graph, registries, compiled.program, context, 16)
+    access_registries = MappingProxyType({"a": access_registry})
+    before_failure_records = registry.persistent_records
+    baseline = execute_route_program(graph, registries, access_registries, compiled.program, context, 16)
 
     registry.repair(old_handle, (PhysicalHop(1, 5), PhysicalHop(5, 3)))
-    repaired = execute_route_program(graph, registries, compiled.program, context, 16)
+    repaired = execute_route_program(graph, registries, access_registries, compiled.program, context, 16)
     registry.update_soft_metric(old_handle, 9.0)
-    soft_updated = execute_route_program(graph, registries, compiled.program, context, 16)
+    soft_updated = execute_route_program(graph, registries, access_registries, compiled.program, context, 16)
 
     registry.retire(old_handle)
     replacement = PathletHandle("b", 0, 1)
@@ -113,7 +128,7 @@ def run_probe() -> dict[str, object]:
             (PhysicalHop(1, 5), PhysicalHop(5, 3)),
         )
     )
-    stale = execute_route_program(graph, registries, compiled.program, context, 16)
+    stale = execute_route_program(graph, registries, access_registries, compiled.program, context, 16)
     flat = execute_flat_local(Graph({0, 1}, [Edge(0, 1)]), 0, 1, Locator((), 1), 2)
 
     def child_for(node: int) -> str:
@@ -121,7 +136,7 @@ def run_probe() -> dict[str, object]:
 
     child_walk = tuple(child_for(node) for node in baseline.path)
     return {
-        "schema": "netsynth.scale4.semantic-probe.v1",
+        "schema": "netsynth.scale4.semantic-probe.v2",
         "topology": {
             "generator": "hand-built",
             "seed": None,
@@ -132,12 +147,12 @@ def run_probe() -> dict[str, object]:
         },
         "knowledge": {
             "parent_has_physical_graph": hasattr(service, "graph"),
+            "parent_has_child_membership": hasattr(service, "members") or hasattr(service, "child_by_node"),
             "parent_has_descendant_realizations": any(
                 hasattr(pathlet, "realization") for btg in service.child_btgs for pathlet in btg.pathlets
             ),
-            "access_state_is_query_time": all(
-                not isinstance(item, AccessHandle) for item in (*service.child_btgs, *service.crossings)
-            ),
+            "ingress_has_access_realizations": hasattr(context, "realizations"),
+            "access_realization_is_owner_local": access_registry.lookup(source_handle) is not None,
         },
         "baseline": {
             "status": baseline.status,
@@ -149,10 +164,12 @@ def run_probe() -> dict[str, object]:
         },
         "state_records": {
             "parent_persistent": service.persistent_records,
-            "child_pathlet_before_failure": 7,
+            "child_pathlet_before_failure": before_failure_records,
             "query_offers_and_selected_program": compiled.query_records,
-            "query_realizations": context.charged_records,
+            "ingress_query_context": context.charged_records,
+            "owner_local_query_realizations": access_registry.charged_records,
             "child_pathlet_after_generation_replacement": registry.persistent_records,
+            "generation_history_records": registry.generation_record_count,
         },
         "changes": {
             "hidden_repair": {"status": repaired.status, "same_cached_program": True, "path": repaired.path},
