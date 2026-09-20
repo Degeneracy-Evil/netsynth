@@ -28,6 +28,8 @@ NetSynth 不是现有互联网协议的重新实现。项目从两个计算机�
 
 代码的职责是验证或反驳架构假设，而不是为了实现方便替架构做决定。
 
+研究顺序必须是 **architecture question → theory reconciliation → architecture choice → minimal validation**。数学理论用于约束和帮助做选择；simulator 可以比 NetSynth architecture 更通用，但不要把“支持多种 routing scheme 的实验接口”提升成网络本身的一等抽象。当前应先阅读 `docs/architecture-recentering.md`，并暂停 `docs/theory-driven-refactor-sketch.md` 中的通用框架重构，直到 Scale-4 architecture choice 明确。
+
 ## 当前硬边界
 
 1. **不考虑兼容性。** Ethernet、IPv4/IPv6、TCP/UDP/QUIC、DNS、BGP、VLAN、MAC 地址、port 等都不是默认前提。除非作为比较基线或架构文档明确重新引入，否则不要照搬。
