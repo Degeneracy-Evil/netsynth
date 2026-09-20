@@ -1,6 +1,8 @@
 # Phase 6: Sparse Metric Repair
 
-> Status: implementation specification after Phase-5 review.
+> **PAUSED — DO NOT IMPLEMENT.** The original Phase-6 proposal predates the mandatory theory-reconciliation gate. Its static metric-repair core overlaps established terminal-metric spanner/emulator/preserver theory. Read `docs/theory-reconciliation.md` and `docs/research-method.md` before revising this phase. The document below is retained only as historical design context.
+
+> Historical status: implementation specification after Phase-5 review.
 >
 > Phase 6 keeps Structured Locators, scoped potentials, attachment lookahead, and ordinary prefix-monotone forwarding. It adds sparse, explicit boundary-to-boundary escape shortcuts as exceptions for non-isometric Scopes.
 
