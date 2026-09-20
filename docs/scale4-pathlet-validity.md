@@ -35,7 +35,6 @@ and the referenced object fixes:
 
 - ingress boundary;
 - egress boundary;
-- advertised cost ceiling;
 - owner Scope;
 - generation.
 
@@ -43,13 +42,13 @@ The internal physical realization may change while the generation remains active
 
 ## 4. Hidden local repair
 
-If an internal topology change occurs and the owner Scope can still realize the same ingress/egress contract with actual cost no greater than the advertised ceiling, the same generation remains valid.
+If an internal topology change occurs and the owner Scope can still realize the same ingress-to-egress transit service, the same generation remains valid.
 
-No parent update is required and no cached Route Program is invalidated.
+No hard-contract parent update is required and no cached Route Program is invalidated. A soft route metric may change and may be refreshed separately.
 
 ## 5. Contract-breaking change
 
-If the owner can no longer satisfy the generation's contract:
+If the owner can no longer realize the generation's ingress-to-egress transit semantics:
 
 1. that generation becomes invalid for new forwarding;
 2. the owner disables its local forwarding realization;
