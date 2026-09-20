@@ -73,8 +73,8 @@ ScopedTransitPathlet {
     local_forwarding_id
     ingress_boundary
     egress_boundary
-    advertised_cost
     generation
+    soft_metric
 }
 ~~~
 
@@ -95,12 +95,11 @@ While an STP is advertised as valid, its owner Scope guarantees:
 1. a packet accepted at the ingress can be delivered to the egress;
 2. the realization remains entirely within the owner Scope;
 3. realization uses only physical links and recursively valid lower-level routing objects;
-4. actual realization cost does not exceed the advertised cost;
-5. the parent does not need to know the realization path.
+4. the parent does not need to know the realization path.
 
-The advertised cost is therefore a **service ceiling**, not a promise that the edge always equals the current internal shortest-path distance.
+Path quality is deliberately **not** part of the hard forwarding contract.
 
-This distinction is deliberate.
+An STP may separately advertise a soft metric such as current estimated cost. That metric is used for route selection, but changing it does not by itself invalidate the pathlet generation.
 
 ## 6. Internal repair without external churn
 
@@ -111,12 +110,12 @@ same ingress
 same egress
 same local forwarding ID
 same generation
-actual cost <= advertised cost
+the ingress-to-egress transit service remains realizable
 ~~~
 
 Thus an internal link failure may be repaired completely inside the child if an alternate realization satisfies the existing promise.
 
-The summary changes only when a parent-visible promise can no longer be met or when the child deliberately republishes a better contract.
+The hard summary changes only when a parent-visible forwarding promise can no longer be met. Soft metric updates may be published independently and may be coalesced or delayed without changing pathlet identity.
 
 This is the main operational advantage of exporting path services rather than exact current shortest-path distances.
 
@@ -145,7 +144,7 @@ A minimal contract can therefore be a tree/forest of transit pathlets. Additiona
 The mandatory architecture semantics are:
 - reachability preservation;
 - physical realizability;
-- advertised-cost ceiling;
+- stable hard forwarding semantics;
 - recursive ownership.
 
 The architecture does **not** mandate an independent alpha-spanner construction inside every Scope.
