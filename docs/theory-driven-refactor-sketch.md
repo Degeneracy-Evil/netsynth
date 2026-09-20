@@ -1,5 +1,7 @@
 # Theory-Driven Refactor Sketch
 
+> **PAUSED — DO NOT IMPLEMENT YET.** This sketch describes possible simulator infrastructure, not NetSynth architecture. After architecture re-centering, the project must return to Scale-4 architecture derivation before deciding whether or how much generic framework refactoring is useful. Read `docs/architecture-recentering.md` first.
+
 > Status: planning only. Do not implement until the architecture/theory reconciliation is approved.
 
 ## Likely code boundary
