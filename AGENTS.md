@@ -24,7 +24,7 @@ uv run --locked python src/main.py
 
 NetSynth 不是现有互联网协议的重新实现。项目从两个计算机之间的最小通信问题开始，逐渐扩大网络规模，在旧模型真正失效时才引入新的架构概念。
 
-当前架构背景见 `docs/architecture.md`，第一阶段模拟目标见 `docs/simulator.md`。
+早期架构推导保留在 `docs/architecture.md`，但 routing/naming 的当前研究语义以 `docs/theory-driven-architecture-revision.md`、`docs/compact-routing-resource-model.md`、`docs/naming-routing-reconciliation.md`、`docs/routing-object-model-v2.md` 和 `docs/theory-baseline-registry.md` 为准。`docs/simulator.md` 仅是早期 Scope-routing 模拟目标。
 
 代码的职责是验证或反驳架构假设，而不是为了实现方便替架构做决定。
 
