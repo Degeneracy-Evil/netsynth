@@ -103,6 +103,8 @@ def run_probe() -> dict[str, object]:
         "probe",
         frozenset({0, 4}),
         frozenset({PhysicalHop(6, 0), PhysicalHop(4, 7)}),
+        destination=Locator((0,), 7),
+        destination_node=7,
     )
     access_registry.publish_source(source_offers[0], AccessRealization(6, 0, (PhysicalHop(6, 0),)))
     access_registry.publish_destination(destination_offers[0], AccessRealization(4, 7, (PhysicalHop(4, 7),)))
@@ -136,7 +138,7 @@ def run_probe() -> dict[str, object]:
 
     child_walk = tuple(child_for(node) for node in baseline.path)
     return {
-        "schema": "netsynth.scale4.semantic-probe.v2",
+        "schema": "netsynth.scale4.semantic-probe.v3",
         "topology": {
             "generator": "hand-built",
             "seed": None,

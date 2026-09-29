@@ -111,6 +111,8 @@ def _leave_and_reenter_fixture() -> tuple[
         "q",
         frozenset({0, 4}),
         frozenset({PhysicalHop(6, 0), PhysicalHop(4, 7)}),
+        destination=Locator((0,), 7),
+        destination_node=7,
     )
     access_registry.publish_source(source_offers[0], AccessRealization(6, 0, (PhysicalHop(6, 0),)))
     access_registry.publish_destination(destination_offers[0], AccessRealization(4, 7, (PhysicalHop(4, 7),)))
@@ -136,7 +138,7 @@ def test_pull_resolution_leaves_and_reenters_scope_without_topology_leak() -> No
     assert result.maximum_stack_depth == 1
     assert compiled.query_records == 7
     assert context.charged_records == 1
-    assert access.charged_records == 5
+    assert access.charged_records == 7
 
     # The route starts in child A, transits child B, then re-enters A.
     child_visits = tuple("b" if node in {1, 2, 3, 5} else "a" for node in result.path)
@@ -263,7 +265,7 @@ def test_publish_and_repair_reject_noncontinuous_or_unowned_realizations() -> No
 
 def test_access_realizations_are_owner_local_opaque_and_consistent() -> None:
     physical = frozenset({PhysicalHop(6, 0), PhysicalHop(4, 7)})
-    registry = AccessRegistry("a", "q", frozenset({0, 4}), physical)
+    registry = AccessRegistry("a", "q", frozenset({0, 4}), physical, destination=Locator((0,), 7), destination_node=7)
     source = SourceAccessOffer(0, 1.0, AccessHandle("a", "q", 0))
     destination = DestinationAccessOffer(4, 1.0, AccessHandle("a", "q", 1))
     registry.publish_source(source, AccessRealization(6, 0, (PhysicalHop(6, 0),)))
@@ -273,6 +275,14 @@ def test_access_realizations_are_owner_local_opaque_and_consistent() -> None:
     assert not hasattr(destination, "realization")
     assert not hasattr(RouteQueryContext("q", 6), "realizations")
     assert registry.lookup(source.handle) is not None
+    assert registry.validates_destination(destination.handle, Locator((0,), 7)) is True
+    assert registry.validates_destination(destination.handle, Locator((0,), 6)) is False
+
+    with pytest.raises(ValueError, match="owner-local target"):
+        registry.publish_destination(
+            DestinationAccessOffer(4, 1.0, AccessHandle("a", "q", 3)),
+            AccessRealization(4, 6, (PhysicalHop(4, 7),)),
+        )
 
     with pytest.raises(ValueError, match="owner"):
         registry.publish_source(
@@ -417,6 +427,12 @@ def test_invalid_realization_and_missing_query_state_fail_explicitly() -> None:
         graph, MappingProxyType({"b": registry}), MappingProxyType({}), compiled.program, context, 16
     )
     assert no_access.status == "missing_access_state"
+
+    wrong_locator = RouteProgram(Locator((0,), 6), compiled.program.actions)
+    wrong_target = execute_route_program(
+        graph, MappingProxyType({"b": registry}), MappingProxyType({"a": access}), wrong_locator, context, 16
+    )
+    assert wrong_target.status == "contract_violation"
 
 
 def test_reachability_floor_is_checked_at_child_without_exposing_topology() -> None:

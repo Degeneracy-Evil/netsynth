@@ -290,16 +290,23 @@ class AccessRegistry:
         boundaries: frozenset[Node],
         physical_actions: frozenset[PhysicalHop],
         child_btgs: tuple[BoundaryTransitGraph, ...] = (),
+        destination: Locator | None = None,
+        destination_node: Node | None = None,
     ) -> None:
         child_ids = [btg.scope_id for btg in child_btgs]
         if len(child_ids) != len(set(child_ids)) or scope_id in child_ids:
             raise ValueError("Access registry child BTGs must name distinct immediate children")
+        if (destination is None) != (destination_node is None):
+            raise ValueError("destination Locator and owner-local node must be supplied together")
         self.scope_id = scope_id
         self.query_id = query_id
         self.boundaries = boundaries
+        self._destination = destination
+        self._destination_node = destination_node
         self._physical_actions = physical_actions
         self._immediate_child_contracts = {pathlet.handle: pathlet for btg in child_btgs for pathlet in btg.pathlets}
         self._realizations: dict[AccessHandle, AccessRealization] = {}
+        self._destination_handles: set[AccessHandle] = set()
 
     def publish_source(self, offer: SourceAccessOffer, realization: AccessRealization) -> None:
         """Validate and retain an opaque source-to-boundary offer locally."""
@@ -313,7 +320,10 @@ class AccessRegistry:
         self._validate_offer(offer.handle, offer.boundary)
         if realization.start != offer.boundary:
             raise ValueError("destination Access Offer must start at its advertised boundary")
+        if self._destination_node is None or realization.end != self._destination_node:
+            raise ValueError("destination Access Offer must end at its owner-local target")
         self._publish(offer.handle, realization)
+        self._destination_handles.add(offer.handle)
 
     def _validate_offer(self, handle: AccessHandle, boundary: Node) -> None:
         if handle.owner_scope != self.scope_id:
@@ -341,10 +351,19 @@ class AccessRegistry:
             return None
         return self._realizations.get(handle)
 
+    def validates_destination(self, handle: AccessHandle, locator: Locator) -> bool | None:
+        """Return owner-local delivery validation for destination offers only."""
+        if handle not in self._destination_handles:
+            return None
+        return self._destination == locator
+
     @property
     def charged_records(self) -> int:
         """Charge the ephemeral registry, access objects, and their actions."""
-        return 1 + sum(1 + len(realization.actions) for realization in self._realizations.values())
+        destination_binding = 2 if self._destination is not None else 0
+        return (
+            1 + destination_binding + sum(1 + len(realization.actions) for realization in self._realizations.values())
+        )
 
 
 @dataclass(frozen=True)
@@ -545,6 +564,7 @@ class _CompletionFrame:
     expected: Node
     depth: int
     handle: PathletHandle | None = None
+    destination_offer: bool = False
 
 
 type _Frame = _ActionFrame | _CompletionFrame
@@ -566,6 +586,7 @@ def execute_route_program(
     cost = 0.0
     hops = 0
     maximum_depth = 0
+    delivered_position: Node | None = None
     active_handles: set[PathletHandle] = set()
     stack: list[_Frame] = [_ActionFrame(action, 0) for action in reversed(program.actions)]
 
@@ -586,6 +607,8 @@ def execute_route_program(
                 return result("contract_violation")
             if frame.handle is not None:
                 active_handles.remove(frame.handle)
+            if frame.destination_offer:
+                delivered_position = current
             continue
         action = frame.action
         if isinstance(action, PhysicalHop):
@@ -618,14 +641,21 @@ def execute_route_program(
         if action.query_id != context.query_id:
             return result("missing_access_state")
         access_registry = access_registries.get(action.owner_scope)
-        access = None if access_registry is None else access_registry.lookup(action)
+        if access_registry is None:
+            return result("missing_access_state")
+        access = access_registry.lookup(action)
         if access is None:
             return result("missing_access_state")
         if current != access.start:
             return result("contract_violation")
-        stack.append(_CompletionFrame(access.end, frame.depth))
+        destination_offer = access_registry.validates_destination(action, program.destination)
+        if destination_offer is False:
+            return result("contract_violation")
+        stack.append(_CompletionFrame(access.end, frame.depth, destination_offer=destination_offer is True))
         stack.extend(_ActionFrame(nested, frame.depth) for nested in reversed(access.actions))
 
+    if delivered_position is not None and current != delivered_position:
+        return result("contract_violation")
     return result("delivered")
 
 
