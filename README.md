@@ -66,6 +66,17 @@ The deterministic five-node probe checks thirteen semantic criteria, not cryptog
 remaining questions are recorded in
 [`docs/security-floor-prototype-validation.md`](docs/security-floor-prototype-validation.md).
 
+## Structural Scope evolution semantic prototype
+
+```bash
+uv run --locked python src/scope_evolution_main.py
+```
+
+This runs only two hand-built graphs with generation-safe flat/split layouts, make-before-break bindings,
+fail-closed retirement, stable parent STPs and explicitly charged control/migration costs. A declared hysteretic
+policy accepts a modular split and permits dense regions to remain/merge flat; there is no partition search or
+scaling/stretch sweep. See [`docs/scope-evolution-prototype-validation.md`](docs/scope-evolution-prototype-validation.md).
+
 ## Running Phase-5 experiments
 
 Run the built-in exhaustive small-graph suite. It compares Flat shortest paths, the Phase-2 recursive oracle,
