@@ -74,6 +74,7 @@ ScopedTransitPathlet {
     ingress_boundary
     egress_boundary
     generation
+    max_additional_transit_slots
     soft_metric
 }
 ~~~
@@ -95,7 +96,8 @@ While an STP is advertised as valid, its owner Scope guarantees:
 1. a packet accepted at the ingress can be delivered to the egress;
 2. the realization remains entirely within the owner Scope;
 3. realization uses only physical links and recursively valid lower-level routing objects;
-4. the parent does not need to know the realization path.
+4. the parent does not need to know the realization path;
+5. runtime recursive execution never requires more transit-context capacity than the advertised hard Context Budget.
 
 Path quality is deliberately **not** part of the hard forwarding contract.
 
@@ -111,6 +113,7 @@ same egress
 same local forwarding ID
 same generation
 the ingress-to-egress transit service remains realizable
+actual nested transit-context requirement <= advertised Context Budget
 ~~~
 
 Thus an internal link failure may be repaired completely inside the child if an alternate realization satisfies the existing promise.
@@ -145,6 +148,7 @@ The mandatory architecture semantics are:
 - reachability preservation;
 - physical realizability;
 - stable hard forwarding semantics;
+- a bounded hard Transit Context Budget;
 - recursive ownership.
 
 The architecture does **not** mandate an independent alpha-spanner construction inside every Scope.
