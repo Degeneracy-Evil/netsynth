@@ -3,7 +3,9 @@ name = "base-py"
 version = "0.1.0"
 description = "Personal Python project template"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "cryptography>=50.0.2",
+]
 
 [dependency-groups]
 dev = [

@@ -51,6 +51,21 @@ corruption. It checks fourteen state/lifetime criteria without streams, ports, c
 performance sweeps. Semantics, evidence and deferred choices are recorded in
 [`docs/scale6-prototype-validation.md`](docs/scale6-prototype-validation.md).
 
+## Security Floor semantic prototype
+
+The Security Floor adds self-certifying Anchor-derived EIDs, delegated operational roles, independently verified
+signed Bindings, a mutually authenticated Channel transcript witness and endpoint AEAD. It leaves frozen routing
+and transport state semantics unchanged and introduces no CA, human/service names or routing-security system.
+`cryptography` supplies standard primitives; the fixed test keys and toy encodings are not deployable.
+
+```bash
+uv run --locked python src/security_floor_main.py
+```
+
+The deterministic five-node probe checks thirteen semantic criteria, not cryptographic performance. Boundaries and
+remaining questions are recorded in
+[`docs/security-floor-prototype-validation.md`](docs/security-floor-prototype-validation.md).
+
 ## Running Phase-5 experiments
 
 Run the built-in exhaustive small-graph suite. It compares Flat shortest paths, the Phase-2 recursive oracle,
