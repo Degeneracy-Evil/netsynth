@@ -97,7 +97,33 @@ Compromise/recovery of the **Identity Anchor itself** is not solved by ordinary 
 
 A future production design may precommit recovery/threshold keys or another root-recovery mechanism in the Anchor. The current architecture does not create a mutable external registry solely to recover a compromised root.
 
-## 5. Binding publication becomes signed object state
+## 5. Self-certifying proof bundles
+
+Because EID is a hash, the EID alone does not reveal the Identity Anchor.
+
+Any operation that needs to prove EID control therefore carries or otherwise directly supplies an **Identity Proof Bundle**:
+
+~~~text
+IdentityProofBundle {
+    IdentityAnchor
+    role credential / delegation chain
+    operation-specific signature or AKE proof
+}
+~~~
+
+A verifier checks:
+
+~~~text
+Hash(canonical IdentityAnchor) == claimed EID
+~~~
+
+and then validates the delegated role key.
+
+No separate global Identity Directory is required merely to recover an EID's public-key material.
+
+Anchors/credentials may of course be cached after first verification.
+
+## 6. Binding publication becomes signed object state
 
 The Scale-5 authoritative binding is refined to an independently verifiable **Signed Binding Record**.
 
@@ -116,7 +142,7 @@ SignedBinding {
 
 The signer must possess an active `BINDING_UPDATE` authorization for that EID.
 
-## 6. Binding Service trust is reduced
+## 7. Binding Service trust is reduced
 
 The Binding Service still provides:
 
@@ -145,7 +171,7 @@ It must not be able to forge a new valid LocatorSet for an EID.
 
 This is a meaningful reduction in the Binding Service trust boundary.
 
-## 7. Staleness versus forgery remains separate
+## 8. Staleness versus forgery remains separate
 
 Cryptographic signatures do not solve mapping freshness by themselves.
 
@@ -164,7 +190,7 @@ A malicious authoritative storage quorum can always cause denial or stale servic
 
 The security floor does not pretend otherwise.
 
-## 8. Channel establishment uses authenticated key exchange
+## 9. Channel establishment uses authenticated key exchange
 
 Scale-6 OPEN/ACCEPT is upgraded from token exchange to a standard **mutually authenticated key exchange**.
 
@@ -182,7 +208,7 @@ The handshake must not bind Channel identity to Locator or Route Program.
 
 That would break mobility.
 
-## 9. Channel authentication statement
+## 10. Channel authentication statement
 
 After successful establishment, each side should be able to state:
 
@@ -192,7 +218,7 @@ This is the exact security meaning needed by Scale 6.
 
 It is not a claim about a human/service name.
 
-## 10. AEAD replaces the prototype checksum
+## 11. AEAD replaces the prototype checksum
 
 Once a Channel is established, Channel control and Message data are protected with authenticated encryption.
 
@@ -209,7 +235,7 @@ AEAD authenticates at least:
 
 Whether some fields are encrypted or authenticated-only is a wire-format decision.
 
-## 11. Confidentiality choice
+## 12. Confidentiality choice
 
 Although confidentiality was not required to derive routing/reliability semantics, NetSynth chooses encrypted Channel payload/control as the default.
 
@@ -221,7 +247,7 @@ Reason:
 
 Raw Scale-5 best-effort packets may still exist without a Channel and are not automatically confidential.
 
-## 12. Congestion Mark remains outside immutable AEAD state
+## 13. Congestion Mark remains outside immutable AEAD state
 
 The Scale-6 Congestion Mark is intentionally mutable by transit forwarding nodes.
 
@@ -245,7 +271,7 @@ An on-path attacker can falsely set congestion marks and reduce throughput, but 
 
 A transit node must never need Channel keys.
 
-## 13. Replay domains
+## 14. Replay domains
 
 Binding and Channel replay are separate.
 
@@ -259,7 +285,7 @@ The authenticated Channel transcript, Receive Tokens, Packet Number spaces and C
 
 Exact crash/restart token/incarnation retention remains part of the previously deferred finite-history design.
 
-## 14. Source identity exposure
+## 15. Source identity exposure
 
 Scale 5 did not require Source EID in every network packet.
 
@@ -271,7 +297,7 @@ After establishment, transit routing need not learn the sender's stable EID mere
 
 Exact privacy/linkability of Destination EID and Receive Tokens is deferred.
 
-## 15. Control-plane routing security is not pulled in here
+## 16. Control-plane routing security is not pulled in here
 
 This security floor does not yet make Byzantine Scope controllers/pathlet advertisers safe.
 
@@ -283,7 +309,7 @@ Authenticating BTG/STP control objects can later use similar signed-role concept
 
 Do not expand the present work into a routing PKI.
 
-## 16. Resulting trust chain
+## 17. Resulting trust chain
 
 Conceptually:
 
@@ -305,7 +331,7 @@ Identity Anchor
 
 This is the entire security floor.
 
-## 17. What is deliberately not solved
+## 18. What is deliberately not solved
 
 - human-readable names;
 - CA/web PKI;
@@ -321,7 +347,7 @@ This is the entire security floor.
 
 These may matter later, but none is required to make the current EID/Binding/Channel semantics internally coherent.
 
-## 18. Minimal semantic validation
+## 19. Minimal semantic validation
 
 A future tiny prototype should test:
 
