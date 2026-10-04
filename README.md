@@ -25,15 +25,18 @@ Compatibility with existing network protocols, security, wireless/weak-network b
 
 The codebase uses Python 3.14, uv, Ruff, mypy, and pytest.
 
-## Scale-4 and Scale-5 semantic prototypes
+## Scale-4, Scale-5 and Scale-6 semantic prototypes
 
 Scale 4 is frozen by [`docs/scale4-freeze-review.md`](docs/scale4-freeze-review.md). Scale 5 adds stable Endpoint IDs,
 sharded binding authority, resolver caches, and exact local EID delivery above that routing substrate.
+Scale 5 is frozen by [`docs/scale5-freeze-review.md`](docs/scale5-freeze-review.md). Scale 6 adds only endpoint-local
+reliable unordered Message Channels, receive tokens, credit and replaceable per-direction path state.
 These commands run tiny reproducible semantic probes:
 
 ```bash
 uv run --locked python src/scale4_main.py
 uv run --locked python src/scale5_main.py
+uv run --locked python src/scale6_main.py
 uv run --locked python scripts/check.py
 ```
 
@@ -42,6 +45,11 @@ two resolver caches. It checks multihoming, stale delivery at a reused attachmen
 and mock association continuity. Results and implementation boundaries are recorded in
 [`docs/scale5-prototype-validation.md`](docs/scale5-prototype-validation.md).
 The historical Phase-5 decomposition experiments below are separate from Scale-5 endpoint identity.
+
+The Scale-6 probe reuses that five-node topology with deterministic loss, duplication, reordering, migration and
+corruption. It checks fourteen state/lifetime criteria without streams, ports, concurrent multipath or transport
+performance sweeps. Semantics, evidence and deferred choices are recorded in
+[`docs/scale6-prototype-validation.md`](docs/scale6-prototype-validation.md).
 
 ## Running Phase-5 experiments
 
