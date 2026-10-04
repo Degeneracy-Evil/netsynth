@@ -25,6 +25,24 @@ Compatibility with existing network protocols, security, wireless/weak-network b
 
 The codebase uses Python 3.14, uv, Ruff, mypy, and pytest.
 
+## Scale-4 and Scale-5 semantic prototypes
+
+Scale 4 is frozen by [`docs/scale4-freeze-review.md`](docs/scale4-freeze-review.md). Scale 5 adds stable Endpoint IDs,
+sharded binding authority, resolver caches, and exact local EID delivery above that routing substrate.
+These commands run tiny reproducible semantic probes:
+
+```bash
+uv run --locked python src/scale4_main.py
+uv run --locked python src/scale5_main.py
+uv run --locked python scripts/check.py
+```
+
+The Scale-5 probe uses one five-node graph, two existing attachment positions, two logical authority groups, and
+two resolver caches. It checks multihoming, stale delivery at a reused attachment, explicit fresh lookup, route replacement,
+and mock association continuity. Results and implementation boundaries are recorded in
+[`docs/scale5-prototype-validation.md`](docs/scale5-prototype-validation.md).
+The historical Phase-5 decomposition experiments below are separate from Scale-5 endpoint identity.
+
 ## Running Phase-5 experiments
 
 Run the built-in exhaustive small-graph suite. It compares Flat shortest paths, the Phase-2 recursive oracle,
