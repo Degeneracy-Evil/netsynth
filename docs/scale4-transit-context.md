@@ -69,6 +69,8 @@ The Transit Stack is normally empty.
 
 It exists only while the network is realizing one or more abstract routing actions.
 
+The packet reserves its maximum transit-context storage before entering the network. Runtime push/swap/pop operations mutate only this reserved area and do not increase the packet's wire length.
+
 ## 4. Two forwarding modes
 
 ### Destination mode
@@ -157,6 +159,8 @@ However, a compiled Route Program may contain a **sequence** of STPs at the same
 
 NetSynth does **not** claim an O(hierarchy-depth) total header bound.
 
+Each STP therefore advertises a hard Context Budget bounding its maximum additional nested stack requirement. The Route Compiler uses selected STP budgets to reserve sufficient transit-context capacity at ingress.
+
 This is an explicit cost of moving destination-specific route state out of transit routers. Any future compression of Route Programs must be justified separately and must account for whatever persistent state it introduces.
 
 ## 8. No mandatory per-flow state in forwarding nodes
@@ -202,6 +206,8 @@ Transit Label widths
 
 plus minimal stack framing/operation semantics.
 
+The reserved amount must be known before packetization so downstream recursive execution cannot enlarge the packet beyond its ingress size.
+
 Exact wire encoding is postponed.
 
 ## 11. Failure semantics
@@ -214,6 +220,8 @@ If an active Transit Label can no longer be realized:
 Hop Budget remains a final bound on inconsistent forwarding behavior.
 
 Generation/reuse rules for labels belong to the later dynamic-control design.
+
+Exceeding an advertised STP Context Budget is likewise a hard contract violation and must fail closed rather than growing or corrupting the packet.
 
 ## 12. What NetSynth is not adopting
 
