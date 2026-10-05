@@ -1,6 +1,6 @@
 # Transit Context Resource Budget
 
-> Status: requirement-driven amendment to frozen Scale-4 execution semantics.
+> Status: historical requirement discovery. The representation-specific `max_additional_transit_slots` formulation is superseded by `docs/packet-carried-routing-theory-reconciliation.md` and `docs/forwarding-program-architecture.md`. The surviving invariant is a hard, compiler-visible bound on packet-resident forwarding context.
 >
 > Scale 4 is not reopened as a routing-design problem.
 >
