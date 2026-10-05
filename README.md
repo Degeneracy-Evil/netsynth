@@ -16,7 +16,7 @@ The current architecture includes Routing Scopes, Boundary Transit Graphs and op
 
 Service naming and group communication remain above the common core.
 
-The main unresolved architecture question is the concrete representation of packet-carried forwarding programs. Current work treats it as a trade-off among packet bits, reusable forwarding state, writable context, forwarding work, update cost, and path quality.
+NetSynth now selects a hybrid compiled forwarding model: packets carry finite coarse Route Code, while Scopes retain reusable local forwarding bindings and packets reserve bounded writable forwarding context. The current task is minimal semantic validation of that choice.
 
 ## Semantic prototypes
 
