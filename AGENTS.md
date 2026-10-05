@@ -39,16 +39,14 @@ Clean-slate 只表示不受现有协议兼容性约束，**不表示重新发明
 - `docs/security-floor-freeze-review.md`
 - `docs/scope-lifecycle-freeze-review.md`
 
-当前仍开放的核心问题是：
+当前 forwarding-program 架构已经选择 **hybrid compiled forwarding**，详见 `docs/forwarding-program-architecture.md`。
 
-> Abstract Route Program 应如何编译为实际 packet-carried forwarding representation？
-
-必须先读：
+当前任务是做最小语义验证，而不是重新选择架构。必须同时阅读：
 - `docs/packet-carried-routing-theory-reconciliation.md`
-- `docs/transit-context-budget.md`
+- `docs/forwarding-program-architecture.md`
 - `docs/path-packet-size.md`
 
-不要直接实现之前已经暂停的固定 Transit Stack / PMTU prompt。
+旧的固定 Transit Stack / `max_additional_transit_slots` 表述已经被更一般的资源模型取代。
 
 ## 3. 核心架构纪律
 
