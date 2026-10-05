@@ -557,42 +557,15 @@ The exact forwarding-program representation is still open.
 
 # 12. Current unresolved architectural question
 
-The main unresolved v0.1 question is **forwarding-program representation**.
+The forwarding-program representation now has an architecture choice: **hybrid compiled forwarding**. The choice is specified in `docs/forwarding-program-architecture.md` and awaits minimal semantic validation before freeze.
 
-The architecture already commits to:
-- packet-carried route information;
-- reusable local STP state;
-- bounded writable packet context;
-- compiler-visible resource limits;
-- simple transit forwarding.
+The selected model contains:
+- finite Packet Route Code carrying coarse destination-specific choices;
+- reusable Scope-local forwarding bindings for STPs/subprograms;
+- bounded writable Forwarding Context reserved before transmission;
+- a compiler that trades packet bits against persistent local state and hardware limits.
 
-It has not yet chosen how these are encoded.
-
-The next theory/design task is to compare:
-
-### Packet-heavy
-
-More path information carried directly in the packet.
-
-### State-heavy
-
-Short local Binding/STP tokens refer to installed reusable forwarding programs.
-
-### Hybrid
-
-Compact packet route code plus reusable local state and bounded writable context.
-
-The choice must explicitly account for:
-- packet bits;
-- persistent forwarding state;
-- update/churn cost;
-- forwarding operations;
-- hardware capability;
-- path quality;
-- Scope opacity;
-- local repair.
-
-The encoding itself should be treated as a synthesis/optimization problem rather than assumed to have one universal optimum.
+The exact byte encoding remains an implementation/profile choice. The next step is minimal semantic validation against packet-heavy and state-heavy controls.
 
 # 13. Architecture versus implementation
 
@@ -644,8 +617,8 @@ The following areas are semantically frozen unless a later requirement exposes a
 - service naming boundary;
 - group communication boundary.
 
-The current active architecture work is:
+The current active work is:
 
-> packet-carried forwarding-program representation and its resource model.
+> minimal semantic validation of the selected hybrid compiled forwarding model.
 
-No development should resume on that topic until theory reconciliation selects the next concrete architecture question/choice.
+Do not reopen the architecture choice unless that validation exposes a contradiction.
