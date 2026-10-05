@@ -208,7 +208,7 @@ A packet must never assume that downstream routing expansion can grow it beyond 
 
 Therefore Transit-Stack execution uses ingress-reserved packet header space.
 
-The requirement-driven Scale-4 amendment in `docs/transit-context-budget.md` makes each STP advertise a hard maximum additional nested-context requirement. The Route Compiler reserves enough capacity before packetization.
+The selected forwarding architecture in `docs/forwarding-program-architecture.md` gives each compiled route a finite Packet Route Code plus bounded writable Forwarding Context. STPs expose representation-independent hard resource requirements, and the compiler reserves enough packet-resident context before packetization.
 
 The exact wire encoding is still deferred, but **in-flight routing operations may not increase packet wire length beyond that ingress reservation**.
 
@@ -268,8 +268,8 @@ A tiny prototype should validate only:
 8. optional advisory Too-Large feedback is not required for recovery;
 9. current Route/Transit header overhead is charged against payload size;
 10. routing-stack execution cannot cause packet size to exceed its ingress-reserved header budget;
-11. STP Context Budget is derived without opening descendant realizations;
-12. repair within an existing Context Budget preserves generation, while a repair requiring a larger budget cannot silently keep the same hard contract.
+11. STP forwarding-resource requirements are composed without opening descendant realizations;
+12. repair within the advertised hard resource requirement preserves generation, while a repair requiring greater packet/context capability cannot silently keep the same hard contract.
 
 Do not benchmark PMTUD algorithms or link MTU distributions.
 
