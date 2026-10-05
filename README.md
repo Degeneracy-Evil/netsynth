@@ -2,170 +2,60 @@
 
 NetSynth is a clean-slate computer-network architecture research project.
 
-The project starts from the smallest possible network—two computers connected by a point-to-point link—and increases scale step by step. New architectural concepts are introduced only when the previous model fails. The long-term goal is to derive a common network core that can scale from simple systems to world-scale networks without inheriting compatibility constraints from today's Internet stack.
+The project derives a network architecture from first principles, introducing new abstractions only when the previous model fails. Compatibility with Ethernet/IP/TCP/BGP/DNS is not a design requirement, but established mathematics and modern systems work are mandatory constraints and sources of reusable ideas.
 
-Current work focuses on testing a multi-resolution routing hypothesis based on topology compression, Routing Scopes, and Structured Locators.
+## Current architecture
 
-## Documents
+The primary architecture entry point is [`docs/architecture-v0.1.md`](docs/architecture-v0.1.md).
 
-- [`docs/architecture.md`](docs/architecture.md): current architecture derivation, boundaries, decisions, and open questions.
-- [`docs/simulator.md`](docs/simulator.md): first routing-simulator experiment plan and metrics.
-- [`AGENTS.md`](AGENTS.md): development and experiment constraints for coding agents.
+Related project guidance:
+- [`docs/architecture-recentering.md`](docs/architecture-recentering.md): research direction and methodology;
+- [`AGENTS.md`](AGENTS.md): implementation/research rules for coding agents.
 
-## Current scope
+The current architecture includes Routing Scopes, Boundary Transit Graphs and opaque Scoped Transit Pathlets, Structured Locators, pull-based route resolution, stable Endpoint IDs with versioned bindings, reliable unordered Message Channels, a minimal Security Floor, and versioned Scope layouts for structural evolution.
 
-The first implementation phase is a routing architecture simulator. It compares flat full-knowledge routing with recursive topology compression and measures:
+Service naming and group communication remain above the common core.
 
-- routing state;
-- path stretch;
-- control churn;
-- failure locality.
+The main unresolved architecture question is the concrete representation of packet-carried forwarding programs. Current work treats it as a trade-off among packet bits, reusable forwarding state, writable context, forwarding work, update cost, and path quality.
 
-Compatibility with existing network protocols, security, wireless/weak-network behavior, transport protocols, and application protocols are intentionally outside the current phase.
+## Semantic prototypes
 
-The codebase uses Python 3.14, uv, Ruff, mypy, and pytest.
-
-## Scale-4, Scale-5 and Scale-6 semantic prototypes
-
-Scale 4 is frozen by [`docs/scale4-freeze-review.md`](docs/scale4-freeze-review.md). Scale 5 adds stable Endpoint IDs,
-sharded binding authority, resolver caches, and exact local EID delivery above that routing substrate.
-Scale 5 is frozen by [`docs/scale5-freeze-review.md`](docs/scale5-freeze-review.md). Scale 6 adds only endpoint-local
-reliable unordered Message Channels, receive tokens, credit and replaceable per-direction path state.
-These commands run tiny reproducible semantic probes:
+Tiny deterministic probes validate frozen architecture choices:
 
 ```bash
 uv run --locked python src/scale4_main.py
 uv run --locked python src/scale5_main.py
 uv run --locked python src/scale6_main.py
+uv run --locked python src/security_floor_main.py
+uv run --locked python src/scope_evolution_main.py
 uv run --locked python scripts/check.py
 ```
 
-The Scale-5 probe uses one five-node graph, two existing attachment positions, two logical authority groups, and
-two resolver caches. It checks multihoming, stale delivery at a reused attachment, explicit fresh lookup, route replacement,
-and mock association continuity. Results and implementation boundaries are recorded in
-[`docs/scale5-prototype-validation.md`](docs/scale5-prototype-validation.md).
-The historical Phase-5 decomposition experiments below are separate from Scale-5 endpoint identity.
+These probes validate semantics and ownership boundaries. They are not performance benchmarks or production protocol implementations.
 
-The Scale-6 probe reuses that five-node topology with deterministic loss, duplication, reordering, migration and
-corruption. It checks fourteen state/lifetime criteria without streams, ports, concurrent multipath or transport
-performance sweeps. Semantics, evidence and deferred choices are recorded in
-[`docs/scale6-prototype-validation.md`](docs/scale6-prototype-validation.md).
+## Historical experiments
 
-## Security Floor semantic prototype
+The repository still contains Phase 1-5 routing/decomposition experiments and scaling studies. They remain useful as derivation history, negative controls, regression infrastructure, and evidence about state/stretch/churn and hierarchy failure modes.
 
-The Security Floor adds self-certifying Anchor-derived EIDs, delegated operational roles, independently verified
-signed Bindings, a mutually authenticated Channel transcript witness and endpoint AEAD. It leaves frozen routing
-and transport state semantics unchanged and introduces no CA, human/service names or routing-security system.
-`cryptography` supplies standard primitives; the fixed test keys and toy encodings are not deployable.
+Their prefix-monotone forwarding and metric-aware hierarchy designs are **not** the current NetSynth architecture.
+
+Historical documents such as [`docs/architecture.md`](docs/architecture.md) and [`docs/simulator.md`](docs/simulator.md) are derivation records, not current architecture authority.
+
+## Research method
+
+```text
+architecture question
+    -> theory / prior-art reconciliation
+    -> explicit NetSynth choice
+    -> minimal semantic validation
+```
+
+Do not use large simulator sweeps to rediscover established theory, and do not turn every theoretical alternative into a first-class NetSynth abstraction.
+
+## Development
+
+The codebase uses Python 3.14, uv, Ruff, strict mypy, and pytest.
 
 ```bash
-uv run --locked python src/security_floor_main.py
+uv run --locked python scripts/check.py
 ```
-
-The deterministic five-node probe checks thirteen semantic criteria, not cryptographic performance. Boundaries and
-remaining questions are recorded in
-[`docs/security-floor-prototype-validation.md`](docs/security-floor-prototype-validation.md).
-
-## Structural Scope evolution semantic prototype
-
-```bash
-uv run --locked python src/scope_evolution_main.py
-```
-
-This runs only two hand-built graphs with generation-safe flat/split layouts, make-before-break bindings,
-fail-closed retirement, stable parent STPs and explicitly charged control/migration costs. A declared hysteretic
-policy accepts a modular split and permits dense regions to remain/merge flat; there is no partition search or
-scaling/stretch sweep. See [`docs/scope-evolution-prototype-validation.md`](docs/scope-evolution-prototype-validation.md).
-
-## Running Phase-5 experiments
-
-Run the built-in exhaustive small-graph suite. It compares Flat shortest paths, the Phase-2 recursive oracle,
-R0/S0/S1/S2/S3 controls, fixed attachment lookahead, and D0/D1/Dbad Scope decompositions. It includes multiple seeds, a label-only
-permutation, a fixed-structure relabeling control, and a skewed-link-cost variant. Every strategy on one graph shares the same fixed decomposition,
-ordered source/destination pairs, and failure events:
-
-```bash
-uv run --locked python src/main.py --output results.json
-```
-
-Or pass `--config experiment.json`. The file may contain one object or a list of objects:
-
-```json
-{
-  "topology_family": "mesh2d",
-  "topology_parameters": {"rows": 10, "columns": 10},
-  "seed": 42,
-  "leaf_size": 8,
-  "pair_sample_count": null,
-  "failure_sample_count": 20,
-  "s1_bundle_representatives": 2,
-  "s2_landmark_counts": [1, 2, 4],
-  "cost_profile": "skewed",
-  "label_permutation_seed": 17,
-  "fixed_structure_label_seed": 19,
-  "hop_budget": 100,
-  "decomposition": "d1",
-  "d1_candidate_limit": 64,
-  "d1_boundary_weight": 0.25,
-  "d1_imbalance_weight": 0.1
-}
-```
-
-Supported generated families are `tree`, `mesh2d`, `torus2d`, `random_geometric`, `small_world`,
-`erdos_renyi`, `clos`, and `expander_like`. A `null` pair sample means exhaustive ordered pairs; a `null`
-failure sample means all generated single-link, single-node, and random-link-set events. JSON output records all
-generation, decomposition, summary-budget, routing, sampling, failure, state-accounting, and metric-schema inputs
-needed to reproduce a run.
-
-The summary budgets are:
-
-- `R0`: exact boundary-interface connectivity components with deliberately uniform abstract cost (the reachability floor);
-- `S0`: sibling adjacency and crossing-link metadata only;
-- `S1`: boundary bundles with a bounded number of representative crossings;
-- `S2(k)`: `k` stable boundary landmarks, landmark distances, and boundary attachments;
-- `S3`: every stable boundary node and the complete boundary-distance matrix.
-
-Summaries are constructed bottom-up. A non-leaf scope sees only immediate-child summaries and physical crossings
-between those children. Results report forwarding, local/global detailed topology, quotient, crossing/bundle,
-portal, attachment, distance, and reachability-component/interface state separately, both as object counts and normalized scalar sizes.
-R0's persistent component representation is linear in boundary interfaces; pairwise abstract edges are transient
-compiler input, not stored or legal next hops. S0/S1 remain negative controls, not candidate reachability floors.
-
-Phase-3 data-plane forwarding receives only the destination's Structured Locator, a Hop Budget, and its own
-immutable prefix-indexed FIB. The per-node control plane compiles this FIB from local-leaf detail and charged
-ancestor crossings/remote sibling summaries. The physical graph is used by the separate executor only to validate
-and price selected hops. Outputs distinguish delivered, no-route, invalid-next-hop, loop, and Hop-Budget-exhausted
-routes, and report locator/reference component counts without claiming a wire encoding.
-The Phase-3.2 candidate obtains one scalar potential per relevant Scope child prefix (and leaf-local destination)
-through scoped neighbor-to-neighbor fixed-point updates. Its architectural forwarding object is the set of adjacent
-physical neighbors with strictly lower potential. The experiment deterministically selects one member, while
-reporting the complete eligible-set distribution. It consumes neither R0 summaries nor remote topology.
-
-Phase 4 publishes recursively composed boundary attachment costs. A parent sees only its child's boundary values,
-not descendant topology. Finite lookahead uses Locator-depth segment checkpoints so every node can recover the
-active checkpoint from its own Locator and the unchanged destination Locator; full lookahead carries exact
-destination attachment values through the hierarchy. Output separates information stretch (`h/full`) from
-hierarchy stretch (`full/Flat`) and charges attachment, potential, and eligible-next-hop records independently.
-
-Phase 5 keeps those forwarding semantics fixed and varies only Scope formation. `D0` is the historical balanced
-connected split, `D1` is a bounded global-weighted-distance research oracle, and `Dbad` is an intentionally
-unbalanced connected control. Results report per-Scope internal/global metric distortion, boundary interfaces,
-crossing links, construction-work counters, failure fragility, and forwarding state/stretch. D1 is centralized and
-expensive by design; it is not presented as a deployable formation protocol.
-Failure output separately classifies physical partitions, changed boundary reachability, unchanged boundary relation,
-and cases where a fixed scope loses internal connectivity while the physical graph stays connected. Such cases can
-remain unreachable under the prefix-monotone forwarding domain. Scoped potentials eliminate stable loops when
-every fixed Scope remains connected; scope-breaking repair and destination/component attachment remain out of scope.
-
-Run the modest D0/D1 scaling study (16, 32, 64, and 128 nodes by default) with:
-
-```bash
-uv run --locked python src/scaling_main.py --output scaling.json
-```
-
-It samples ordered pairs and reports state, stretch, reachability outcomes, and one failure's churn/locality per
-topology. These empirical sizes are not an asymptotic complexity claim.
-
-To import a physical graph, use `"topology_family": "json"` and `"topology_parameters": {"path": "graph.json"}`.
-The graph file has `nodes` and `links` lists; each link has `left`, `right`, and optional positive `cost` and
-`capacity` fields. Imported experiments record the source file's SHA-256 digest.
