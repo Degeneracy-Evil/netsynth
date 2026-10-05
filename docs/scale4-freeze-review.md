@@ -4,7 +4,7 @@
 >
 > Decision: **Scale 4 routing semantics are frozen.**
 >
-> This freeze covers architecture semantics, not wire encoding, production control protocols, performance tuning, or a claim of optimal routing theory.
+> This freeze covers Scope/STP knowledge boundaries, Locator semantics, scoped route resolution, generation safety, and the requirement for bounded packet-carried route state. It does **not** freeze the concrete packet encoding. The earlier literal Transit Stack is now only one candidate forwarding representation; `docs/packet-carried-routing-theory-reconciliation.md` and `docs/architecture-v0.1.md` supersede that encoding-specific wording.
 
 ## 1. Hardening result
 
@@ -68,7 +68,7 @@ The hardening did not change the architectural choices:
 - routes may leave and re-enter Scopes;
 - reusable summaries are pushed, destination-specific routes are pulled on demand;
 - Route Programs carry coarse path state;
-- Transit Stack executes pathlets recursively;
+- their concrete forwarding representation is compiler/implementation work and is not frozen;
 - internal pathlet repair may preserve a generation;
 - soft metric changes do not invalidate the hard generation;
 - hard failure retires the exact generation and stale references fail closed;
@@ -108,7 +108,9 @@ Specifically, do not resume:
 - generic compact-routing plug-in architecture;
 - global pathlet flooding;
 - global routing epochs;
-- new mutable-header abstractions beyond the chosen Route/Transit Stack.
+- changes to the frozen Scope/STP semantics merely to favor one packet encoding.
+
+The concrete forwarding-program representation remains an open post-freeze refinement, provided it preserves the frozen Scale-4 ownership and routing semantics.
 
 Future work may revise Scale 4 only if a Scale-5+ requirement cannot be expressed without changing these semantics.
 
