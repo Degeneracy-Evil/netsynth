@@ -16,7 +16,7 @@ The current architecture includes Routing Scopes, Boundary Transit Graphs and op
 
 Service naming and group communication remain above the common core.
 
-NetSynth now selects a hybrid compiled forwarding model: packets carry finite coarse Route Code, while Scopes retain reusable local forwarding bindings and packets reserve bounded writable forwarding context. The current task is minimal semantic validation of that choice.
+NetSynth Architecture v0.1 is now semantically frozen. Its forwarding plane uses a hybrid compiled model: packets carry finite coarse Route Code, while Scopes retain reusable local forwarding bindings and packets reserve bounded writable forwarding context. See `docs/architecture-v0.1-freeze-review.md`.
 
 ## Semantic prototypes
 
