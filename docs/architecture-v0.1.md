@@ -1,6 +1,6 @@
 # NetSynth Architecture v0.1
 
-> Status: consolidated current architecture.
+> Status: **frozen NetSynth Architecture v0.1**. See `docs/architecture-v0.1-freeze-review.md`.
 >
 > This document is the primary architectural entry point for NetSynth after the Scale-4/5/6, Security Floor, and Routing Scope lifecycle freezes.
 >
@@ -617,8 +617,6 @@ The following areas are semantically frozen unless a later requirement exposes a
 - service naming boundary;
 - group communication boundary.
 
-The current active work is:
+The selected hybrid compiled forwarding model has passed minimal semantic validation and is frozen by `docs/forwarding-program-freeze-review.md`.
 
-> minimal semantic validation of the selected hybrid compiled forwarding model.
-
-Do not reopen the architecture choice unless that validation exposes a contradiction.
+The next project phase is realization/measurement of the frozen v0.1 architecture. Reopen architecture only when implementation or measurement exposes a concrete contradiction.
