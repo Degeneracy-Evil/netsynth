@@ -28,10 +28,13 @@ uv run --locked python src/scale5_main.py
 uv run --locked python src/scale6_main.py
 uv run --locked python src/security_floor_main.py
 uv run --locked python src/scope_evolution_main.py
+uv run --locked python src/forwarding_program_main.py
 uv run --locked python scripts/check.py
 ```
 
 These probes validate semantics and ownership boundaries. They are not performance benchmarks or production protocol implementations.
+
+The [forwarding-program validation](docs/forwarding-program-validation.md) compares packet-heavy, state-heavy and hybrid encodings on one tiny topology, including bounded-context spilling and a longer hidden STP repair.
 
 ## Historical experiments
 
