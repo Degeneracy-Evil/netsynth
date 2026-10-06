@@ -39,9 +39,9 @@ Clean-slate 只表示不受现有协议兼容性约束，**不表示重新发明
 - `docs/security-floor-freeze-review.md`
 - `docs/scope-lifecycle-freeze-review.md`
 
-当前 forwarding-program 架构已经选择 **hybrid compiled forwarding**，详见 `docs/forwarding-program-architecture.md`。
+forwarding-program 架构已经选择并冻结 **hybrid compiled forwarding**，详见 `docs/forwarding-program-architecture.md` 与 `docs/forwarding-program-freeze-review.md`。
 
-当前任务是做最小语义验证，而不是重新选择架构。必须同时阅读：
+NetSynth Architecture v0.1 已冻结，当前工作进入实现/测量阶段。必须同时阅读：
 - `docs/packet-carried-routing-theory-reconciliation.md`
 - `docs/forwarding-program-architecture.md`
 - `docs/path-packet-size.md`
@@ -139,3 +139,7 @@ uv run --locked python scripts/check.py
 Phase 1-5 路由/分解实验保留为 derivation history、regression、negative control 和 research infrastructure。它们不是当前架构权威。
 
 不要因为历史代码里已有某个 abstraction，就自动把它继续带入新架构。
+
+## 11. v0.1 冻结后的原则
+
+`docs/architecture-v0.1-freeze-review.md` 是当前总体冻结状态。后续优先做具体数据面、wire/profile、真实实现和测量。不要为了增加功能重新打开架构；只有实现或实验暴露明确矛盾时才回到架构推导。
