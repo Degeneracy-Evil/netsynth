@@ -1,7 +1,6 @@
 # Tiny Forwarding Program semantic validation
 
-Status: selected hybrid model validated under sequential, converged execution;
-this is not a wire-format or performance freeze.
+Status: selected hybrid model validated. The architecture semantics are frozen by `forwarding-program-freeze-review.md`; this remains a semantic validation, not a wire-format or performance freeze.
 
 ## Reconciliation and scope
 
@@ -129,13 +128,4 @@ The prototype executes boundary-to-boundary transit programs, not endpoint
 delivery or PMTU negotiation. Existing opaque query-time Access, Channel and
 security behavior remains covered by unchanged regression tests.
 
-One semantic question remains before an unconditional forwarding-program
-freeze: **lifetime of already-in-flight continuation references during same-
-generation repair**. This fixture repairs between executions. It proves reuse
-of the cached outer code, not safe reclamation of an old local continuation
-while a packet is paused inside a child. No draining, reference counting or
-concurrent update protocol has been invented here. Binding-state admission/GC
-policy and concrete wire widths likewise remain profile/implementation choices.
-
-The selected information-placement and bounded-packet semantics are supported;
-this result does not silently decide those concurrent-update lifetimes.
+The freeze review resolves the remaining in-flight continuation boundary conservatively. Same-generation repair preserves the external STP contract and future outer-route compilation, but does not promise lossless survival of packets already executing retired internal continuation state. Such stale local references fail closed and may be recovered by the reliable Channel through ordinary retransmission. The common architecture therefore does not require draining, reference counting or multi-version continuation tables. Binding-state admission/GC policy and concrete wire widths remain implementation/profile choices.
