@@ -41,7 +41,7 @@ Clean-slate 只表示不受现有协议兼容性约束，**不表示重新发明
 
 forwarding-program 架构已经选择并冻结 **hybrid compiled forwarding**，详见 `docs/forwarding-program-architecture.md` 与 `docs/forwarding-program-freeze-review.md`。
 
-NetSynth Architecture v0.1 已冻结，当前工作进入实现/测量阶段。必须同时阅读：
+NetSynth Architecture v0.1 已冻结，但 2026-10 的研究价值审查尚未发现相对强基线的独有优势；**暂缓大规模模拟、XDP 与完整协议栈实现**。见 `docs/expressiveness-equivalence-gate-2026-10.md`。研究新问题时必须读：
 - `docs/packet-carried-routing-theory-reconciliation.md`
 - `docs/forwarding-program-architecture.md`
 - `docs/path-packet-size.md`
@@ -91,7 +91,7 @@ Path State (Locator / Route / RTT / congestion / packet size)
 
 Scale 4 已确定：parent 只能消费 immediate-child contracts；不能查看 descendant physical topology；STP 是 opaque reusable transit service；destination-specific route state 按需 pull；stale generation fail closed；内部变化优先 local repair。
 
-但 **packet-carried forwarding 的具体编码尚未冻结**。不要把 literal label stack 当成最终架构。
+混合编译转发的**语义已冻结**，但具体 wire 编码、字段长度和编译启发式尚未冻结。不要把 literal label stack 当成最终架构。
 
 当前资源模型至少要显式收费：persistent forwarding state、packet route-code bits、writable forwarding context、forwarding processing、path quality/stretch、update/churn cost。
 
@@ -142,4 +142,4 @@ Phase 1-5 路由/分解实验保留为 derivation history、regression、negativ
 
 ## 11. v0.1 冻结后的原则
 
-`docs/architecture-v0.1-freeze-review.md` 是当前总体冻结状态。后续优先做具体数据面、wire/profile、真实实现和测量。不要为了增加功能重新打开架构；只有实现或实验暴露明确矛盾时才回到架构推导。
+`docs/architecture-v0.1-freeze-review.md` 是当前总体冻结状态，但不代表研究贡献成立。`docs/research-value-gate-2026-10.md` 和 `docs/expressiveness-equivalence-gate-2026-10.md` 为当前新颖性与价值审核结论。下一步优先找现有系统不能以相近能力和资源实现的精确性质，或明确转向工程整合。未经新的研究价值门槛通过，不自动开启真实数据面/大规模仿真。
