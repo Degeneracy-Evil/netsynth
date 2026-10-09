@@ -18,6 +18,12 @@ Service naming and group communication remain above the common core.
 
 NetSynth Architecture v0.1 is now semantically frozen. Its forwarding plane uses a hybrid compiled model: packets carry finite coarse Route Code, while Scopes retain reusable local forwarding bindings and packets reserve bounded writable forwarding context. See `docs/architecture-v0.1-freeze-review.md`.
 
+## Research-value status (October 2026)
+
+The frozen v0.1 architecture is a coherent semantic systems design, **not yet a demonstrated novel routing architecture**. A strong combination of hierarchical pathlets, Segment Routing / Binding SIDs, QoS summary policies, identity/location separation and message-oriented transports covers much of its claimed functionality.
+
+See [the research-value gate](docs/research-value-gate-2026-10.md) and [the bounded expressiveness-equivalence challenge](docs/expressiveness-equivalence-gate-2026-10.md). Pause large simulator rewrites and full-stack/XDP work until a credible remaining architectural capability or resource separation has been identified. This assessment does not alter frozen v0.1 semantics.
+
 ## Semantic prototypes
 
 Tiny deterministic probes validate frozen architecture choices:
