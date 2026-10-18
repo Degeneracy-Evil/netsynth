@@ -216,11 +216,7 @@ n = 8
 all_partitions = list(partitions(n))
 assert len(all_partitions) == 4140
 for bits in range(4):
-    exact = min(
-        max(Counter(p).values())
-        for p in all_partitions
-        if len(set(p)) <= 2**bits
-    )
+    exact = min(max(Counter(p).values()) for p in all_partitions if len(set(p)) <= 2**bits)
     bound = ceil(n / min(n, 2**bits))
     assert exact == bound
     print(f"hint_bits={bits}, worst_completion_units={exact}")
