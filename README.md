@@ -137,6 +137,83 @@ is established prior art ([RFC 9256](https://www.rfc-editor.org/rfc/rfc9256.html
 These reference numbers do not establish equivalent unordered-Message service,
 goodput, CPU or tail latency. The economics performance/value gate remains open.
 
+## Actual-wire, node-local forwarding feasibility
+
+```bash
+uv run --locked python src/wire_feasibility_main.py
+uv run --locked python scripts/check.py
+```
+
+Based on `e3f1356`, this tiny follow-up uses real big-endian serialized packets
+and **two independent forwarding engines**, not copied baseline cost results.
+NetSynth lowering consumes owner-local instructions, immediate-child entry
+advertisements and opaque caller-return keys. Physical nodes retain only local
+tables, local generation guards and physical neighbor ports. Neither data plane
+receives a graph, owner map or registry. Tests delete all control/global maps
+after installation and still deliver through neighbor links alone.
+
+One experimental NetSynth header is:
+
+```text
+prefix 12 | current Scope/Token/generation 10 | Structured Locator 7
+| immutable code 10*N | pre-reserved context 10*C
+| Receive Token/PN/Message/fragment 16 | encrypted payload | AEAD tag 16
+```
+
+The prefix contains version/flags/Hop Budget/congestion mark (4 bytes), header
+and packet lengths (4), and code count/cursor/context capacity/depth (4).
+Keys contain Scope=16, Token=32 and generation=32 bits; Scope zero is reserved.
+The fixture Locator contains one 16-bit component plus a 32-bit selector and
+an 8-bit component count. These are **candidate widths, not a protocol freeze**.
+Exhausted widths reject rather than wrap; generation `0xffffffff` is reserved
+for inactive guards. Root crossing tokens use a disjoint reserved numeric range.
+
+Initial result on the same 10-hop leave/re-enter route:
+
+| Encoding | Actual header bytes | Node table rows | Serialized node state bytes | Table / generation reads |
+| --- | ---: | ---: | ---: | ---: |
+| NetSynth warm reusable macro | 71 | 19 | 931 | 19 / 19 |
+| NetSynth explicit, 2 context slots | 111 | 14 | 726 | 17 / 17 |
+| NetSynth explicit, 0 context slots | 91 | 17 | 837 | 17 / 17 |
+| Independent single-label swapping | 49 | 16 | 564 | 16 / 16 |
+
+**The old 67-byte estimate is not met by this candidate.** Locator, framing,
+version and congestion fields add 13 bytes relative to its envelope; real packed
+routing code/context save 9 against the old 8-byte-word profile, for net +4.
+These figures are not lower bounds: there is no compression optimization here.
+The label candidate is a preserved counterexample, not a NetSynth victory.
+
+The baseline independently compiles the same opaque scoped policies into
+continuation-specialized local LFIB entries. Its 4-byte label/TC/bottom/TTL shim
+follows the field layout in [RFC 3032](https://www.rfc-editor.org/rfc/rfc3032.html#section-2.1);
+it adds the **same** Locator, transport fields and AES-GCM protection. It is not
+a complete deployed MPLS/SR stack. Exact local generation guards plus monotonic,
+never-reused 20-bit labels provide fail-closed semantics over the tested finite
+lifetime; exhaustion rejects. Unlimited safe label recycling is not claimed.
+
+Both implementations preserve the outer code/label across a longer leaf repair,
+deliver the same repaired 12-hop route, reject stale generations, and allow an
+already-in-flight retired continuation to fail closed. Repair changes only leaf
+nodes, not ancestor-owned entries. Packets filled to the 512-byte ingress limit
+remain exactly 512 bytes; context shortage never enlarges them. Unknown local
+tokens, malformed lengths, link loss, Hop-Budget exhaustion, corrupt ciphertext
+and exhausted label space remain explicit negative cases.
+
+JSON includes complete packet hex, per-node counts, state breakdowns, independent
+operation counters per execution phase, and repair delta records/encoded bytes.
+State is an exact canonical fixed-record image: NetSynth rows are 37 bytes,
+label rows 21; both charge generation records (10 bytes) and neighbor interfaces
+(4), with the label allocator watermark (4/node) also charged. These are **not
+CPython heap or ASIC memory measurements**. Scope compiler caches/allocators and
+endpoint keys/reliability state are outside these node-forwarding images, not
+claimed free or included in a whole-system memory comparison.
+
+AES-GCM is an endpoint-only integrity witness using isolated deterministic test
+traffic keys; nonce prefixes are endpoint context and PNs must not wrap. This
+does not implement handshake, message reliability, control-plane wire transport,
+asynchronous update consistency, structural layout transitions or performance
+benchmarks. No frozen v0.1 module or architectural semantics are changed.
+
 ## Historical experiments
 
 The repository still contains Phase 1-5 routing/decomposition experiments and scaling studies. They remain useful as derivation history, negative controls, regression infrastructure, and evidence about state/stretch/churn and hierarchy failure modes.
