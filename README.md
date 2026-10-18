@@ -24,6 +24,8 @@ The frozen v0.1 architecture is a coherent semantic systems design, **not yet a 
 
 See [the research-value gate](docs/research-value-gate-2026-10.md) and [the bounded expressiveness-equivalence challenge](docs/expressiveness-equivalence-gate-2026-10.md). Pause large simulator rewrites and full-stack/XDP work until a credible remaining architectural capability or resource separation has been identified. This assessment does not alter frozen v0.1 semantics.
 
+The current first-principles resource study is [resource economics and break-even](docs/first-principles-resource-economics-2026-10.md). A useful systems result need not be a brand-new theoretical mechanism: comparable performance and semantics with a measured reduction in transmitted bytes, CPU, resident state, or control traffic is sufficient engineering value. These are hypotheses, not yet measured results.
+
 ## Semantic prototypes
 
 Tiny deterministic probes validate frozen architecture choices:
