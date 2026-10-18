@@ -214,6 +214,12 @@ does not implement handshake, message reliability, control-plane wire transport,
 asynchronous update consistency, structural layout transitions or performance
 benchmarks. No frozen v0.1 module or architectural semantics are changed.
 
+## Cold/warm forwarding lifecycle research
+
+The independently serialized, node-local [wire feasibility probe](src/wire_feasibility_main.py) exposes a negative control: a 49-byte short-label header and lower forwarding-state cost than the current 71-byte NetSynth warm candidate on the single-program fixture. These values are finite-lifetime candidate costs, not production performance or an optimum.
+
+The [label lifecycle and cold/warm derivation](docs/label-lifecycle-and-cold-warm-derivation-2026-10.md) derives an explicit packet-byte/control break-even, an old-token aliasing counterexample, and conditions for safe label reuse, and identifies path diversity and real label-installation/reclamation as the next minimal validation. It does not change frozen v0.1 semantics or establish a unique advantage over SR/BSID.
+
 ## Historical experiments
 
 The repository still contains Phase 1-5 routing/decomposition experiments and scaling studies. They remain useful as derivation history, negative controls, regression infrastructure, and evidence about state/stretch/churn and hierarchy failure modes.
